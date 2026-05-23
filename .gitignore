@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+
+# Project data (generated at runtime)
+audio/
+srt/
+output/
+
+# Credentials (do NOT commit)
+*.env
+!requirements.in
+
+# OS
+.DS_Store
+Thumbs.db

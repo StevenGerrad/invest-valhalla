@@ -1,0 +1,18 @@
+# === B 站视频字幕生成器 ===
+# 安装: pip install -r requirements.txt
+# 锁定版本: pip freeze > requirements-lock.txt
+
+# HTTP 客户端 (B站 API + 文件下载)
+httpx
+
+# B站 API 封装 (视频列表、DASH流)
+bilibili-api-python
+
+# 语音转文字
+faster-whisper
+
+# 繁体中文 → 简体中文转换
+opencc-python-reimplemented
+
+# 进度条
+tqdm
