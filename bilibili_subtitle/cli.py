@@ -60,7 +60,7 @@ def main():
     parser.add_argument("--series", type=int, default=0, help="系列/合集 ID (URL 中 lists/ 后面的数字)")
     parser.add_argument("--pages", type=int, default=1, help="最大爬取页数，--series 模式下忽略")
     parser.add_argument("--limit", type=int, default=0, help="最多处理多少个视频 (0=全部)")
-    parser.add_argument("--model", default="small", help="Whisper 模型大小 (tiny/base/small/medium/large)")
+    parser.add_argument("--model", default="turbo", help="Whisper 模型大小 (tiny/base/small/medium/large-v3/turbo)")
     parser.add_argument("--device", default="cpu", help="推理设备 (cpu/cuda)")
     parser.add_argument("--output-dir", default="output", help="输出根目录")
     parser.add_argument("--skip-existing", action="store_true", help="跳过已有字幕的视频")

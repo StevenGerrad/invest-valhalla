@@ -41,7 +41,12 @@
       "Bash(no_proxy=\"*\" /f/research/project/testV1/.venv/Scripts/python.exe /f/research/project/testV1/test_step1_retry.py)",
       "Bash(HF_ENDPOINT=\"https://hf-mirror.com\" no_proxy=\"*\" /f/research/project/testV1/.venv/Scripts/python.exe -m bilibili_subtitle.cli --mid 8047632 --pages 1 --limit 1 --model base --dry-run)",
       "Bash(HF_ENDPOINT=\"https://hf-mirror.com\" no_proxy=\"*\" /f/research/project/testV1/.venv/Scripts/python.exe -m bilibili_subtitle.cli --mid 322005137 --pages 1 --limit 1 --model base)",
-      "Bash(HF_ENDPOINT=\"https://hf-mirror.com\" no_proxy=\"*\" /f/research/project/testV1/.venv/Scripts/python.exe -m bilibili_subtitle.cli --mid 322005137 --pages 1 --limit 1 --skip-existing)"
+      "Bash(HF_ENDPOINT=\"https://hf-mirror.com\" no_proxy=\"*\" /f/research/project/testV1/.venv/Scripts/python.exe -m bilibili_subtitle.cli --mid 322005137 --pages 1 --limit 1 --skip-existing)",
+      "Bash(no_proxy=\"*\" .venv/Scripts/pip install openai)",
+      "Bash(.venv/Scripts/python -c \"import openai; print\\(openai.__version__\\)\")",
+      "Bash(export no_proxy=\"*\")",
+      "Bash(.venv/Scripts/python -m pip install openai)",
+      "Bash(.venv/Scripts/python test_l3.py)"
     ]
   }
 }

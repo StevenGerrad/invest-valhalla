@@ -16,3 +16,6 @@ opencc-python-reimplemented
 
 # 进度条
 tqdm
+
+# LLM API 调用 (Layer 3 DeepSeek 后端)
+openai
