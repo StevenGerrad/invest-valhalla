@@ -11,31 +11,31 @@ python -m venv .venv
 pip install -r requirements.txt    # 国内: set HF_ENDPOINT=https://hf-mirror.com
 
 # 2. 登录 B 站 (仅一次)
-python -m bilibili_subtitle.cli --login
+python -m valhalla.cli --login
 
 # 3. 生成字幕
-python -m bilibili_subtitle.cli --mid <UP主ID> --pages 5
+python -m valhalla.cli --mid <UP主ID> --pages 5
 ```
 
 ## 使用方式
 
 ```bash
 # 处理 UP 主最新 60 个视频
-python -m bilibili_subtitle.cli --mid 322005137 --pages 2
+python -m valhalla.cli --mid 322005137 --pages 2
 
 # 处理指定系列/合集 (URL 中 lists/ 后的数字)
-python -m bilibili_subtitle.cli --mid 322005137 --series 5488551
+python -m valhalla.cli --mid 322005137 --series 5488551
 
 # 增量模式 (跳过已有字幕)
-python -m bilibili_subtitle.cli --mid 322005137 --pages 3 --skip-existing
+python -m valhalla.cli --mid 322005137 --pages 3 --skip-existing
 
 # 查看已有字幕
-python -m bilibili_subtitle.cli --mid 322005137 --list
-python -m bilibili_subtitle.cli --mid 322005137 --stats
-python -m bilibili_subtitle.cli --mid 322005137 --search 投资
+python -m valhalla.cli --mid 322005137 --list
+python -m valhalla.cli --mid 322005137 --stats
+python -m valhalla.cli --mid 322005137 --search 投资
 
 # 完整参数
-python -m bilibili_subtitle.cli \
+python -m valhalla.cli \
     --mid 322005137 \
     --pages 5 \
     --limit 10 \

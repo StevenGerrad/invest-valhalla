@@ -1,155 +1,182 @@
 # 技术方案
 
-> 当前版本: v0.2 (向 v0.3 演进中) | 最后更新: 2026-05-23
+> 当前版本: v0.4 (RAG + Agent + 测评) | 最后更新: 2026-05-24
 >
 > 领域模型见 [domain-model.md](domain-model.md)，产品方案见 [product.md](product.md)。
 
 ## 系统架构
 
 ```
-CLI (cli.py)  /  未来 Web UI
-│
-├── BiliClient (bilibili.py)      bilibili-api-python → B 站 API
-│   ├── 视频列表 (user.get_videos / ChannelSeries)
-│   └── DASH 音频流 URL (video.get_download_url)
-│
-├── Downloader (downloader.py)    httpx + FFmpeg
-│   ├── 流式下载 .m4s
-│   └── 转码 16kHz mono s16 .wav
-│
-├── Transcriber (transcriber.py)  faster-whisper + OpenCC + hotwords
-│   ├── turbo 模型 (809M) 本地离线推理
-│   ├── 领域化 initial_prompt + hotwords 增强
-│   └── OpenCC t2s 繁→简后处理
-│
-├── IndexManager (indexer.py)     JSON 文件索引
-│   └── output/{mid}/index.json 增量读写 + 统计查询
-│
-└── (规划中)
-    ├── Chunker    SRT → 语义段落切片
-    ├── Embeddings bge-small-zh-v1.5 向量化
-    ├── Retriever  混合检索 (向量 + BM25 + RRF)
-    └── Generator  Ollama / Claude API RAG 问答
+                    ┌──────────────────────────┐
+                    │          core             │
+                    │  models.py  端口协议       │
+                    │  (最内层，不依赖任何人)      │
+                    └──────────▲───────────────┘
+                               │
+              ┌────────────────┼────────────────┐
+              │                │                │
+     ┌────────┴──────┐  ┌─────┴──────┐         │
+     │    ingest     │  │    rag     │         │
+     │  数据获取      │  │  检索+生成  │         │
+     └───────────────┘  └─────▲──────┘         │
+                              │                │
+                     ┌────────┴──────┐         │
+                     │    agent      │         │
+                     │  数字人对话    │         │
+                     └────────▲──────┘         │
+                              │                │
+                     ┌────────┴──────┐         │
+                     │     eval      │─────────┘
+                     │   观测/测评    │
+                     └───────────────┘
+
+依赖方向 (──→ = "depends on"):
+  ingest ──→ core
+  rag    ──→ core
+  agent  ──→ rag + core
+  eval   ──→ rag + agent + core
 ```
 
-## 组件设计
+```
+valhalla/
+│
+├── ingest/                  # 📥 数据获取与维护
+│   ├── bilibili.py          #   BiliClient: B 站 API 封装
+│   ├── downloader.py        #   音频下载 + FFmpeg 转码
+│   ├── transcriber.py       #   faster-whisper + OpenCC + hotwords
+│   ├── indexer.py           #   IndexManager: JSON 索引
+│   ├── processor.py         #   SubtitleProcessor: Layer 3 LLM 纠错
+│   ├── prompts.py           #   Layer 3 纠错 prompt 模板
+│   └── __main__.py          #   CLI: --mid --pages --llm-process
+│
+├── rag/                     # 🔍 检索增强生成
+│   ├── chunker.py           #   processed JSON → 多层 chunks
+│   ├── embeddings.py        #   bge-small-zh-v1.5 向量化
+│   ├── store.py             #   Milvus Lite 向量库管理
+│   ├── retriever.py         #   混合检索 (向量+BM25+RRF) + parent doc
+│   ├── generator.py         #   RAG 回答生成 + source 引用
+│   └── __main__.py          #   CLI: --ask "PE是什么？"
+│
+├── agent/                   # 🤖 数字人对话
+│   ├── persona.py           #   数字人 system prompt 定义
+│   ├── conversation.py      #   多轮对话 + 查询改写 + session 管理
+│   └── __main__.py          #   CLI: --chat
+│
+├── eval/                    # 📊 质量测评
+│   ├── retrieval.py         #   Recall@K / MRR / NDCG
+│   ├── generation.py        #   LLM-as-Judge (忠实度/相关性/完整性)
+│   ├── persona.py           #   数字人一致性评分
+│   ├── benchmark.py         #   测试集 + 综合报告
+│   └── __main__.py          #   CLI: --eval
+│
+└── core/                    # 🧱 共享基础设施
+    ├── models.py            #   Pydantic 领域模型
+    ├── llm.py               #   ChatBackend Protocol + DeepSeekBackend
+    └── env.py               #   load_env() 配置加载
 
-### 现有组件
-
-| 模块 | 文件 | 职责 | 对外接口 |
-|------|------|------|----------|
-| BiliClient | [bilibili.py](../bilibili_subtitle/bilibili.py) | B 站 API 封装：视频列表、系列视频、DASH 音频流 URL | `get_video_list()`, `iter_all_videos()`, `iter_series_videos()`, `get_best_audio_url()` |
-| Downloader | [downloader.py](../bilibili_subtitle/downloader.py) | 音频下载 + FFmpeg 转码 | `download_audio()`, `convert_to_wav()` |
-| Transcriber | [transcriber.py](../bilibili_subtitle/transcriber.py) | faster-whisper 转录 + OpenCC 繁简转换 + hotwords 增强 | `Transcriber.transcribe()`, `Transcriber.transcribe_to_srt()` |
-| IndexManager | [indexer.py](../bilibili_subtitle/indexer.py) | JSON 索引读写 + 统计查询 | `load()`, `save()`, `add()`, `has()`, `list_videos()`, `stats()` |
-| CLI | [cli.py](../bilibili_subtitle/cli.py) | argparse 入口 + 流程编排 | `main()` |
-
-### 规划组件
-
-| 模块 | 职责 | 输入 | 输出 |
-|------|------|------|------|
-| Chunker | SRT 段落 → 语义 chunk 切片 | Layer 1 SRT 或 Layer 3 语义文本 | Layer 4 chunks JSONL |
-| Embeddings | chunk 文本 → 向量 | chunk.text | 512-dim float32 向量 |
-| Retriever | 用户问题 → 相关 chunk 列表 | 查询字符串 | top-k chunk + 相关性分数 |
-| Generator | chunk 上下文 + 问题 → 回答 | prompt + context | 带引用来源的回答 |
-
-### 职责边界
-
-- 各组件通过明确的输入/输出契约解耦
-- **BiliClient** 不关心下载和转录，**Transcriber** 不关心文本后续用途
-- **Chunker** 可独立替换切分策略，**Embeddings** 可独立替换向量模型
-- **Retriever** 可独立切换检索算法（纯向量 / 混合 / 纯关键词）
+依赖方向: eval → rag → core  |  agent → rag → core  |  ingest → core
+                              core 不依赖任何人
+```
 
 ## 技术选型
 
-### 语音转录: faster-whisper 1.2.1
+### 语音转录: faster-whisper 1.2.1 (turbo 模型)
 
-**对比**:
-
-| 方案 | 速度 (CPU) | 精度 | 依赖 | 结论 |
-|------|-----------|------|------|------|
-| openai-whisper | 1x | 基线 | PyTorch ~2GB | 太慢太重 |
-| faster-whisper | 4x | 同 | CTranslate2 ~50MB | **选用** |
-| SenseVoice | 7x | 中文更好 | FunASR 自有模型 | 备选，生态不成熟 |
-| Whisper API | 即时 | 最优 | 网络+付费 | 备选，有隐私顾虑 |
-
-**当前默认模型**: `turbo` (809M) — large-v3 蒸馏版，medium 的速度换 large 的质量。
-
-**领域增强** (零新依赖):
-
-| 机制 | 位置 | 作用 |
-|------|------|------|
-| `initial_prompt` | [transcriber.py:9](../bilibili_subtitle/transcriber.py#L9) | 告知模型这是股票投资内容，引导语境 |
-| `hotwords` | [transcriber.py:13](../bilibili_subtitle/transcriber.py#L13) | 38 个金融术语，提升专有名词识别率 |
-
-> 设计原则: hotwords 以 `list[str]` 为正模，调用 faster-whisper 前以 `" ".join()` 转为 API 所需格式。数据模型不受外部 API 格式约束。详见 [CLAUDE.md](../CLAUDE.md) 编码约定。
+默认 `turbo` (809M)，CPU 实时率 ~3x。通过 domain prompt + 38 个 hotwords 增强金融术语识别。OpenCC t2s 繁转简兜底。
 
 ### 音频下载: httpx + FFmpeg
 
-**为什么不选 yt-dlp**: B 站 DASH 音画天然分离，直接下载音频流 URL 即可，不需要先下完整视频再抽音频。FFmpeg 是必须依赖 (.m4s→.wav)，不必再引入 yt-dlp。
+B 站 DASH 音画天然分离，直接下载音频流 URL。FFmpeg 转 16kHz mono s16 WAV，转后即删。
 
-**FFmpeg 路径探测**: 优先 winget 安装路径，fallback PATH。
+### 语义纠错 (Layer 3): DeepSeek V4 Flash
 
-### B 站 API: bilibili-api-python 17.4.1
+把 Whisper 输出分批发给 LLM 纠错 + 去口语化 + 话题分段。批内 4 并发调 API。含缓存 (按 segment hash) + JSON 解析失败降级。
 
-内置 WBI 签名、自动 buvid 生成、登录管理。全异步接口，用 `sync()` 包装为同步调用。
+### 向量库: Milvus Lite
 
-### 繁简转换: OpenCC
+嵌入式，`pip install pymilvus`，HNSW 索引 + 内置 BM25 混合检索。每个 UP 主独立 db 文件。上限 ~1M 向量/文件。
 
-Whisper 训练数据繁简混合，即使加了 `initial_prompt` 引导，仍有部分繁体输出。OpenCC `t2s` 作为后处理兜底。
+### Embedding: bge-small-zh-v1.5
+
+95MB，512-dim，sentence-transformers 加载，中文 MTEB 中上。备选: bge-large-zh-v1.5。
+
+### LLM 调用: ChatBackend Protocol
+
+所有 LLM 调用通过 `ChatBackend` Protocol 解耦。当前实现: DeepSeek V4 Flash (openai SDK 兼容)。切换后端只改一行。
 
 ### 索引存储: JSON 文件
 
-1389 个视频的索引条目约 200KB，JSON 解析毫秒级，零依赖，人可直接读写。超过 5000 视频或需要跨 UP 主查询时再迁移 SQLite。
+index.json 管理视频元数据。~200KB 解析毫秒级，零依赖。
 
-### 向量化 + 检索 + 生成 (规划中)
+## 组件设计
 
-| 层 | 选型 | 理由 |
-|------|------|------|
-| Embedding | `bge-small-zh-v1.5` (95MB, 512-dim) | 中文效果好，轻量本地运行。备选: `bge-large-zh-v1.5` |
-| 向量库 | ChromaDB | 嵌入式、零配置、Python 原生、支持元数据过滤。180K chunks 完全胜任 |
-| 检索 | 向量 + BM25 + RRF 融合 | 向量覆盖语义泛化，BM25 覆盖术语精确匹配 (PE/ROE 等) |
-| 生成 | Ollama Qwen2.5-7B (本地) / Claude API (云端) | 双模式: 默认本地 (隐私免费)，可选云端 (更高质量) |
+### ingest/ — 数据获取与维护
 
-### 未来候选替换
+| 模块 | 职责 |
+|------|------|
+| BiliClient | B 站 API: 视频列表、系列、DASH 音频流 URL |
+| downloader | httpx 流式下载 + FFmpeg 转码 |
+| Transcriber | faster-whisper + OpenCC + hotwords |
+| IndexManager | JSON 索引读写 + 统计查询 |
+| SubtitleProcessor | Layer 3: 分批 LLM 纠错 + 缓存 + 降级 |
 
-| 当前 | 替换触发条件 | 候选 |
-|------|-------------|------|
-| Whisper turbo | 中文准确率不够 | SenseVoice (FunASR) |
-| JSON 索引 | 数据量 > 5000 视频或需跨 UP 主查询 | SQLite |
-| ChromaDB | chunks > 500K 或查询延迟 > 1s | LanceDB |
-| bge-small | 领域术语召回率不足 | bge-large-zh-v1.5 |
-| Ollama Qwen | 需要更高质量回答 | Claude API / DeepSeek API |
+### rag/ — 检索增强生成
 
-## 存储估算
+| 模块 | 职责 |
+|------|------|
+| Chunker | processed JSON sections → 三层混合 chunks (section + keyword + video_summary) |
+| Embedder | bge-small-zh-v1.5 封装，单例懒加载 |
+| VectorStore | Milvus Lite CRUD + 元数据过滤搜索 |
+| Retriever | 混合检索 (HNSW + BM25 + RRF) + parent doc 扩展 + video_id 去重 |
+| Generator | context 组装 + RAG prompt + LLM 生成 + source 引用 |
 
-基于 1389 个视频，平均 15 分钟/视频：
+### agent/ — 数字人对话
 
-| 保留方案 | 组成 | 大小 |
-|---------|------|------|
-| 纯文本 (SRT + 索引) | Layer 1 + 2 | ~300MB |
-| + 语义文本 | + Layer 3 | ~320MB |
-| + 向量库 | + Layer 4 chunks + ChromaDB | ~1GB |
-| + 音频 .m4s | + 下载音频 | ~14GB |
-| + 全部 (含 .wav) | + 转码中间文件 | ~46GB |
+| 模块 | 职责 |
+|------|------|
+| Persona | UP 主 "史诗级韭菜" 人设 system prompt |
+| ConversationAgent | 多轮对话管理 + 查询改写 + session 持久化 |
+
+### eval/ — 质量测评
+
+| 模块 | 职责 |
+|------|------|
+| RetrievalEval | Recall@K / Precision@K / MRR / NDCG |
+| GenerationEval | LLM-as-Judge: 忠实度 / 相关性 / 完整性 / 引用准确度 |
+| PersonaEval | 第一人称一致性 / 风格匹配 / 边界遵守 |
+| Benchmark | 三类测试用例（事实/多跳/全局）+ 综合报告 |
 
 ## 关键设计决策
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| 同步包装异步 | `sync()` | bilibili-api-python 全异步，避免引入 asyncio 复杂度 |
-| 中间文件不保留 | 默认删 .m4s/.wav | WAV 可从 m4s 用 FFmpeg 重建，只保留 SRT 为最终产物 |
+| 同步包装异步 | `sync()` | bilibili-api-python 全异步，避免引入 asyncio |
+| 中间文件不保留 | 默认删 .m4s/.wav | WAV 可从 m4s 重建，只保留 SRT |
 | 索引格式 | JSON | 数据量小，零依赖，人可读 |
-| Layer 3 可选 | 可跳过 LLM 整理 | 降低最小可用门槛，渐进式增强 |
-| 数据正模与 API 分离 | list/dict 存数据，边界处转换 | 不受外部 API 格式约束，方便配置化和入库 |
-| Chunk 格式 | JSONL | 流式读写，一行一条，易增量追加 |
+| Layer 3 可选 | 可跳过 LLM 纠错 | 降低最小可用门槛 |
+| 数据正模与 API 分离 | list/dict 存数据，边界处转换 | 不受外部 API 格式约束 |
+| Agent 框架 | 暂不引入，手写 ~100 行 | 当前线性对话不需要框架 |
+| 向量库 | Milvus Lite (嵌入式) | HNSW + 内置 BM25，零运维 |
+| 测评方式 | LLM-as-Judge + 自动构造测试集 | 零人工标注 |
+
+## 存储估算
+
+基于 1,389 个视频全量处理:
+
+| 保留方案 | 组成 | 大小 |
+|---------|------|------|
+| 纯文本 (SRT + 索引) | Layer 1 + 2 | ~300MB |
+| + 语义文本 | + Layer 3 | ~320MB |
+| + 向量库 | + chunks + Milvus Lite | ~1.5GB |
+| + 音频 .m4s | + 下载音频 | ~14GB |
 
 ## 演进路线
 
 | 版本 | 内容 | 状态 |
 |------|------|------|
-| **v0.1** | 视频列表 + DASH 下载 + small 模型转录 + JSON 索引 | ✅ |
-| **v0.2** | turbo 默认模型、hotwords 领域增强、`--bvid` 单视频 | ✅ |
-| **v0.3** | Layer 3 LLM 语义整理、Layer 4 向量入库、混合检索 | 规划中 |
-| **v0.4** | 交互式 RAG 问答 CLI | 规划中 |
-| **v1.0** | Web UI、定时增量、知识图谱 | 愿景 |
+| v0.1 | 视频列表 + DASH + small 转录 + JSON 索引 | ✅ |
+| v0.2 | turbo + hotwords + Layer 3 LLM 纠错 | ✅ |
+| v0.3 | 代码重构 (ingest/rag/agent/eval/core 子包) | ✅ |
+| v0.4 | RAG 管道 + 数字人 Agent + 测评体系 | 🔜 进行中 |
+| v0.5 | LightRAG 图检索 + Contextual Retrieval | 规划中 |
+| v1.0 | Web UI、定时增量、多 UP 主、知识图谱 | 愿景 |

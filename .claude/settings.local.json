@@ -46,7 +46,16 @@
       "Bash(.venv/Scripts/python -c \"import openai; print\\(openai.__version__\\)\")",
       "Bash(export no_proxy=\"*\")",
       "Bash(.venv/Scripts/python -m pip install openai)",
-      "Bash(.venv/Scripts/python test_l3.py)"
+      "Bash(.venv/Scripts/python test_l3.py)",
+      "Bash(rm -f f:/research/project/invest-valhalla/output/322005137/audio/BV1sQGt6sEdM.* 2>/dev/null; echo \"cleaned\")",
+      "Bash(ls -la f:/research/python/BiliSum/)",
+      "Read(//f/research/python/BiliSum/**)",
+      "Bash(find f:/research/python/BiliSum -type f | head -200)",
+      "Skill(update-config)",
+      "Skill(update-config:*)"
+    ],
+    "additionalDirectories": [
+      "f:\\research\\project\\invest-valhalla\\output\\322005137\\audio"
     ]
   }
 }

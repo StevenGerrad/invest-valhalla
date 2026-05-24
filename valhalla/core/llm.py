@@ -1,24 +1,10 @@
-"""LLM 后端：配置加载 + 薄封装"""
+"""LLM 后端：Protocol 定义 + DeepSeek 实现"""
 import logging
-import os
-from pathlib import Path
 from typing import Protocol
 
+from valhalla.core.env import load_env
+
 logger = logging.getLogger(__name__)
-
-
-def load_env(filepath: str | Path = ".env") -> dict[str, str]:
-    """加载 KEY=VALUE 格式的配置文件，忽略注释和空行"""
-    config: dict[str, str] = {}
-    if not os.path.exists(filepath):
-        return config
-    with open(filepath, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                k, v = line.split("=", 1)
-                config[k] = v
-    return config
 
 
 class ChatBackend(Protocol):
@@ -30,7 +16,7 @@ class ChatBackend(Protocol):
 class DeepSeekBackend:
     """DeepSeek API 后端 (兼容 OpenAI 协议)"""
 
-    def __init__(self, config_file: str | Path = ".env"):
+    def __init__(self, config_file: str = ".env"):
         config = load_env(config_file)
         from openai import OpenAI
         self._client = OpenAI(
@@ -38,6 +24,10 @@ class DeepSeekBackend:
             api_key=config["DEEPSEEK_API_KEY"],
         )
         self._model = config.get("DEEPSEEK_MODEL", "deepseek-chat")
+
+    @property
+    def model_name(self) -> str:
+        return self._model
 
     def chat(self, system: str, user: str) -> str:
         logger.info("调用 DeepSeek (model=%s)...", self._model)
@@ -47,7 +37,6 @@ class DeepSeekBackend:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            response_format={"type": "json_object"},
             temperature=0.1,
             max_tokens=4096,
         )

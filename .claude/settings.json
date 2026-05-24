@@ -1,7 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch"
+      "WebFetch",
+      "WebSearch",
+      "Edit",
+      "Write",
+      "Read",
+      "Glob",
+      "Grep",
+      "Agent",
+      "Bash(git *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(wc *)",
+      "Bash(echo *)",
+      "Bash(find *)",
+      "Bash(rm *)",
+      "Bash(mkdir *)",
+      "Bash(.venv/*)",
+      "Bash(python *)",
+      "Bash(pip *)",
+      "Bash(no_proxy:*)",
+      "Bash(export *)",
+      "Bash(cd *)",
+      "Bash(grep *)"
     ]
   }
 }

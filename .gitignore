@@ -15,6 +15,7 @@ venv/
 .idea/
 
 # Project data (generated at runtime)
+logs/
 audio/
 srt/
 output/

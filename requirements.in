@@ -19,3 +19,18 @@ tqdm
 
 # LLM API 调用 (Layer 3 DeepSeek 后端)
 openai
+
+# RAG 向量库 (Milvus Lite, 嵌入式)
+pymilvus
+
+# Embedding 模型
+sentence-transformers
+
+# 中文分词 (BM25 检索)
+jieba
+
+# BM25 关键词检索
+rank-bm25
+
+# 领域模型 (类型安全)
+pydantic

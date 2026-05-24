@@ -1,45 +1,76 @@
-"""Layer 3: LLM 字幕后处理 — 分批 + 缓存 + 合并"""
+"""Layer 3: LLM 字幕后处理 — 分批 + 缓存 + 合并 + 并行"""
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from bilibili_subtitle.llm import ChatBackend
-from bilibili_subtitle.prompts import SYSTEM_PROMPT, build_user_message
+from valhalla.core.llm import ChatBackend
+from valhalla.prompts import SYSTEM_PROMPT, build_user_message
 
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20  # 每批最多 20 个 segment
 OVERLAP = 3      # 相邻批次重叠段数
+MAX_WORKERS = 4  # DeepSeek API 并发数
 
 
 class SubtitleProcessor:
     """LLM 字幕后处理器：纠错 + 去口语化 + 话题分段"""
 
     def __init__(self, backend: ChatBackend,
-                 cache_dir: Path | None = None):
+                 cache_dir: Path | None = None,
+                 max_workers: int = MAX_WORKERS):
         self._backend = backend
         self._cache_dir = cache_dir
+        self._max_workers = max_workers
 
     def process(self, bvid: str, title: str,
                 segments: list[dict]) -> dict:
-        """处理一个视频的全部 segments，返回 Layer 3 结构化数据"""
+        """处理一个视频的全部 segments，batch 内 LLM 调用并行"""
         batches = self._make_batches(segments)
-        all_sections: list[dict] = []
-        all_keywords: list[str] = []
+        total = len(batches)
+
+        # 分离：缓存命中 vs 需要调 API
+        results: list[dict | None] = [None] * total
+        pending: list[tuple[int, list[dict], str]] = []
 
         for i, batch in enumerate(batches):
-            cache_key = self._cache_key(bvid, batch)
-            result = self._load_cache(cache_key)
-            if result is None:
-                logger.info("处理批次 %d/%d (%d 段)",
-                            i + 1, len(batches), len(batch))
-                result = self._process_batch(title, batch)
-                self._save_cache(cache_key, result)
+            key = self._cache_key(bvid, batch)
+            cached = self._load_cache(key)
+            if cached is not None:
+                results[i] = cached
+                logger.info("缓存命中 %d/%d", i + 1, total)
             else:
-                logger.info("缓存命中 批次 %d/%d", i + 1, len(batches))
-            all_sections.extend(result.get("sections", []))
-            all_keywords.extend(result.get("global_keywords", []))
+                pending.append((i, batch, key))
+
+        # 并行调 API
+        if pending:
+            logger.info("并行处理 %d/%d 批次 (max_workers=%d)...",
+                        len(pending), total, self._max_workers)
+            with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+                futures = {
+                    pool.submit(self._process_batch, title, batch): (idx, key)
+                    for idx, batch, key in pending
+                }
+                for future in as_completed(futures):
+                    idx, key = futures[future]
+                    try:
+                        results[idx] = future.result()
+                        self._save_cache(key, results[idx])
+                    except Exception as e:
+                        logger.error("批次 %d 失败: %s", idx + 1, e)
+                        # 找到对应 batch 做降级
+                        results[idx] = self._fallback_sections(batches[idx])
+
+        # 按原始顺序合并
+        all_sections: list[dict] = []
+        all_keywords: list[str] = []
+        for r in results:
+            if r is None:
+                continue
+            all_sections.extend(r.get("sections", []))
+            all_keywords.extend(r.get("global_keywords", []))
 
         merged = self._merge_sections(all_sections)
         return {
@@ -49,11 +80,9 @@ class SubtitleProcessor:
             "global_keywords": sorted(set(all_keywords)),
         }
 
-    # ── 内部 ──────────────────────────────────────────
-
     def _process_batch(self, title: str,
                        batch: list[dict]) -> dict:
-        """调 LLM 处理单批，含重试和降级"""
+        """调 LLM 处理单批，含重试和降级（线程安全）"""
         user = build_user_message(title, batch)
         for attempt in range(3):
             try:
@@ -65,7 +94,6 @@ class SubtitleProcessor:
                 logger.warning("第 %d 次解析失败: %s", attempt + 1, e)
                 if attempt == 2:
                     return self._fallback_sections(batch)
-        # unreachable
         return self._fallback_sections(batch)
 
     def _validate(self, result: dict):
@@ -108,7 +136,6 @@ class SubtitleProcessor:
         merged = [sections[0]]
         for sec in sections[1:]:
             last = merged[-1]
-            # 时间重叠超过 2 秒 → 同一段 → 跳过
             if sec["start_time"] <= last["end_time"] - 2.0:
                 continue
             merged.append(sec)
