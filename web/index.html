@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>史诗级韭菜 — 投资知识助手</title>
+<link rel="stylesheet" href="/static/web/style.css">
+</head>
+<body>
+<div id="app">
+  <!-- 侧边栏 -->
+  <aside id="sidebar">
+    <div class="sidebar-header">
+      <h2>💎 韭菜对话</h2>
+      <button id="btn-new-chat" title="新建对话">＋</button>
+    </div>
+    <div id="session-list"></div>
+    <div class="sidebar-footer">
+      <span id="stats-info">加载中…</span>
+    </div>
+  </aside>
+
+  <!-- 主聊天区 -->
+  <main id="chat-panel">
+    <div id="message-list"></div>
+    <div id="input-bar">
+      <input type="text" id="user-input" placeholder="问韭菜一个问题…" autofocus>
+      <button id="btn-send">发送</button>
+    </div>
+  </main>
+</div>
+
+<script src="/static/web/app.js"></script>
+</body>
+</html>

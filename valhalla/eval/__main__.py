@@ -24,15 +24,16 @@ def main():
     parser.add_argument("--n", type=int, default=10, help="测评用例数")
     args = parser.parse_args()
 
-    setup_logging(args.mid)
+    setup_logging()
     logger = logging.getLogger(__name__)
     mid = args.mid
-    db_path = OUTPUT / str(mid) / "vectordb.db"
+    db_path = OUTPUT / str(mid) / "faiss_index"
     if not db_path.exists():
         print("向量库未建。请先运行: python -m valhalla.rag build --mid 322005137")
         return
 
     store = VectorStore(str(db_path))
+    store.load()
     embedder = BGEEmbedder()
     retriever = HybridRetriever(store, embedder)
 

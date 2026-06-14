@@ -23,17 +23,18 @@ def main():
     parser.add_argument("--session", default=None, help="会话ID (断点续聊)")
     args = parser.parse_args()
 
-    setup_logging(args.mid)
+    setup_logging()
     logger = logging.getLogger(__name__)
 
     mid = args.mid
-    db_path = OUTPUT / str(mid) / "vectordb.db"
+    db_path = OUTPUT / str(mid) / "faiss_index"
     if not db_path.exists():
         print("向量库未建。请先运行: python -m valhalla.rag build --mid 322005137")
         return
 
     logger.info("加载向量库: %s", db_path)
     store = VectorStore(str(db_path))
+    store.load()
     embedder = BGEEmbedder()
     retriever = HybridRetriever(store, embedder)
 

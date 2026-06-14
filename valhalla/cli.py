@@ -80,7 +80,7 @@ def main():
     parser.add_argument("--reverse", action="store_true", help="倒序排列")
     args = parser.parse_args()
 
-    setup_logging(args.mid)
+    setup_logging()
     logger = logging.getLogger(__name__)
 
     output_dir = Path(args.output_dir)

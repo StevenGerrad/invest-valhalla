@@ -19,7 +19,8 @@ OUTPUT = Path("output")
 
 def cmd_build(args):
     """构建/重建向量索引"""
-    setup_logging(args.mid)
+    setup_logging()
+    logger = logging.getLogger(__name__)
     mid = args.mid
     processed_dir = OUTPUT / str(mid) / "processed"
     if not processed_dir.exists():
@@ -44,22 +45,25 @@ def cmd_build(args):
     for c, v in zip(chunks, vectors):
         c.vector = v.tolist()
 
-    db_path = OUTPUT / str(mid) / "vectordb.db"
-    store = VectorStore(str(db_path))
+    index_dir = OUTPUT / str(mid) / "faiss_index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    store = VectorStore(str(index_dir))
     store.rebuild(chunks)
-    logger.info("完成: %d 条向量已入库 → %s", store.count(), db_path)
+    logger.info("完成: %d 条向量已入库 → %s", store.count(), index_dir)
 
 
 def cmd_search(args):
     """纯检索测试"""
-    setup_logging(args.mid)
+    setup_logging()
+    logger = logging.getLogger(__name__)
     mid = args.mid
-    db_path = OUTPUT / str(mid) / "vectordb.db"
+    db_path = OUTPUT / str(mid) / "faiss_index"
     if not db_path.exists():
         logger.error("vectordb 不存在，请先 run build")
         return
 
     store = VectorStore(str(db_path))
+    store.load()
     embedder = BGEEmbedder()
     retriever = HybridRetriever(store, embedder)
 
@@ -84,10 +88,12 @@ def cmd_search(args):
 
 def cmd_ask(args):
     """RAG 问答"""
-    setup_logging(args.mid)
+    setup_logging()
+    logger = logging.getLogger(__name__)
     mid = args.mid
-    db_path = OUTPUT / str(mid) / "vectordb.db"
+    db_path = OUTPUT / str(mid) / "faiss_index"
     store = VectorStore(str(db_path))
+    store.load()
     embedder = BGEEmbedder()
     retriever = HybridRetriever(store, embedder)
 
