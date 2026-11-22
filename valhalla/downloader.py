@@ -47,18 +47,22 @@ def download_audio(audio_url: str, output_path: Path, overwrite: bool = False) -
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info("下载音频: %s", output_path)
+    partial_path = output_path.with_suffix(output_path.suffix + ".part")
+    try:
+        with httpx.stream("GET", audio_url, headers=DL_HEADERS, timeout=300) as resp:
+            resp.raise_for_status()
+            total = int(resp.headers.get("Content-Length", 0))
+            downloaded = 0
+            with partial_path.open("wb") as f:
+                for chunk in resp.iter_bytes(8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
 
-    with httpx.stream("GET", audio_url, headers=DL_HEADERS, timeout=300) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("Content-Length", 0))
-        downloaded = 0
-        with open(output_path, "wb") as f:
-            for chunk in resp.iter_bytes(8192):
-                f.write(chunk)
-                downloaded += len(chunk)
-
-        if total and downloaded != total:
-            logger.warning("下载不完整: %d/%d bytes", downloaded, total)
+            if not downloaded or (total and downloaded != total):
+                raise IOError(f"下载不完整: {downloaded}/{total} bytes")
+        partial_path.replace(output_path)
+    finally:
+        partial_path.unlink(missing_ok=True)
 
     logger.info("下载完成: %s (%dKB)", output_path, downloaded // 1024)
     return output_path

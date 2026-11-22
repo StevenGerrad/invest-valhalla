@@ -5,6 +5,7 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -50,13 +51,29 @@ def _print_list(mid: int, output_dir: Path, sort_by: str, reverse: bool,
         print(f"{date:<12} {length:>6} {play:>8} [{segments}段] {title}")
 
 
+def _select_video_range(videos: Iterable[dict], first: str, last: str) -> list[dict]:
+    """按列表顺序选取首尾 BV 号之间的全部视频，包含端点。"""
+    selected = []
+    for item in videos:
+        bvid = item["bvid"]
+        if not selected and bvid != first:
+            continue
+        selected.append(item)
+        if bvid == last:
+            return selected
+    missing = last if selected else first
+    raise ValueError(f"在指定列表范围内未找到端点 {missing}，请检查 BV 号、顺序和 --pages")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="B站 UP 主视频字幕生成器 — 爬取视频列表，下载音频，生成 SRT 字幕"
     )
     parser.add_argument("--mid", type=int, required=True, help="UP 主用户 ID")
     parser.add_argument("--series", type=int, default=0, help="系列/合集 ID (URL 中 lists/ 后面的数字)")
-    parser.add_argument("--pages", type=int, default=1, help="最大爬取页数，--series 模式下忽略")
+    parser.add_argument("--pages", type=int, default=1, help="最大爬取页数 (0=不限)，--series 模式下忽略")
+    parser.add_argument("--bvid-range", nargs=2, metavar=("FIRST", "LAST"),
+                        help="按视频列表顺序限制处理范围，包含首尾两个 BV 号")
     parser.add_argument("--limit", type=int, default=0, help="最多处理多少个视频 (0=全部)")
     parser.add_argument("--model", default="turbo", help="Whisper 模型大小 (tiny/base/small/medium/large-v3/turbo)")
     parser.add_argument("--device", default="cpu", help="推理设备 (cpu/cuda)")
@@ -139,6 +156,15 @@ def main():
         logger.info("获取视频列表...")
         video_iter = client.iter_all_videos(args.mid, max_pages=args.pages)
 
+    if args.bvid_range:
+        try:
+            video_iter = _select_video_range(video_iter, *args.bvid_range)
+        except ValueError as exc:
+            logger.error("%s", exc)
+            parser.exit(2, f"{exc}\n")
+        logger.info("指定 BV 号范围: %s 至 %s，共 %d 个视频",
+                    *args.bvid_range, len(video_iter))
+
     # 收集待处理视频（先过滤跳过的）
     pending: list[dict] = []
     skipped = 0
@@ -181,30 +207,29 @@ def main():
 
             logger.info("--- [%s] %s", bvid, title[:50])
 
-            # 音频：取预下载结果或现在下载
-            if prefetch_future and prefetch_bvid == bvid:
-                try:
-                    prefetch_future.result()
-                    logger.info("预下载就绪")
-                except Exception as e:
-                    logger.warning("预下载失败，重试: %s", e)
+            try:
+                # 音频：取预下载结果或现在下载
+                if prefetch_future and prefetch_bvid == bvid:
+                    try:
+                        prefetch_future.result()
+                        logger.info("预下载就绪")
+                    except Exception as e:
+                        logger.warning("预下载失败，重试: %s", e)
+
+                if not m4s_path.exists():
                     _prefetch(bvid, m4s_path)
 
-            if not m4s_path.exists():
-                _prefetch(bvid, m4s_path)
+                # 启动下一个视频的预下载（后台线程）
+                if i + 1 < len(pending):
+                    next_item = pending[i + 1]
+                    next_bvid = next_item["bvid"]
+                    next_path = audio_dir / f"{next_bvid}.m4s"
+                    if not next_path.exists():
+                        prefetch_bvid = next_bvid
+                        prefetch_future = prefetch.submit(
+                            _prefetch, next_bvid, next_path
+                        )
 
-            # 启动下一个视频的预下载（后台线程）
-            if i + 1 < len(pending):
-                next_item = pending[i + 1]
-                next_bvid = next_item["bvid"]
-                next_path = audio_dir / f"{next_bvid}.m4s"
-                if not next_path.exists():
-                    prefetch_bvid = next_bvid
-                    prefetch_future = prefetch.submit(
-                        _prefetch, next_bvid, next_path
-                    )
-
-            try:
                 wav_path = convert_to_wav(m4s_path)
                 segments = transcriber.transcribe(wav_path)
 
@@ -241,12 +266,12 @@ def main():
 
             except Exception as e:
                 logger.error("处理失败 [%s]: %s", bvid, e)
-                continue
 
             time.sleep(3)
 
     logger.info("=" * 50)
-    logger.info("处理完成: %d 个, 跳过: %d 个", processed, skipped)
+    logger.info("处理完成: %d 个, 跳过: %d 个, 失败: %d 个",
+                processed, skipped, len(pending) - processed)
     logger.info("字幕目录: %s", srt_dir.resolve())
     logger.info("索引文件: %s", index.index_path.resolve())
     logger.info("=" * 50)
