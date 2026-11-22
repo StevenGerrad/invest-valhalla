@@ -1,0 +1,26 @@
+[bilibili]
+page_size = 30
+download_timeout_seconds = 300
+
+[llm]
+default_provider = "deepseek"
+timeout_seconds = 120
+
+[llm.providers.deepseek]
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+
+[llm.providers.tokenhub]
+base_url = "https://tokenhub.tencentmaas.com/v1"
+model = "hy4-flash"
+extra_body = { reasoning_effort = "no_think" }
+
+[ffmpeg]
+executable = "ffmpeg"
+sample_rate = 16000
+timeout_seconds = 600
+
+[whisper]
+model_size = "turbo"
+device = "cpu"
+compute_type = "int8"
