@@ -6,9 +6,9 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from valhalla.integration.converter import AudioConversionError, FFmpegConfig, extract_audio
+from integration.converter import AudioConversionError, FFmpegConfig, extract_audio
 
-_RUN = "valhalla.integration.converter.audio.subprocess.run"
+_RUN = "integration.converter.audio.subprocess.run"
 
 
 def _write_output(command: list[str], **options: object) -> subprocess.CompletedProcess:

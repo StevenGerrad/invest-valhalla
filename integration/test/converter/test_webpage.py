@@ -2,7 +2,7 @@
 
 import unittest
 
-from valhalla.integration.converter import WebParagraph, extract_web_text
+from integration.converter import WebParagraph, extract_web_text
 
 
 class WebpageTest(unittest.TestCase):

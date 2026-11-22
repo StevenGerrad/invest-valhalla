@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 from bilibili_api.login_v2 import QrCodeLoginEvents
 
-from valhalla.integration.fetcher.bilibili import auth as bilibili_auth
+from integration.fetcher.bilibili import auth as bilibili_auth
 
 
 class BilibiliAuthTests(unittest.IsolatedAsyncioTestCase):

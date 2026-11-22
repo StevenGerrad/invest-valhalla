@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 
-from valhalla.integration.fetcher.bilibili import client as bilibili
+from integration.fetcher.bilibili import client as bilibili
 
 
 VIDEO = {

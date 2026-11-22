@@ -8,7 +8,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from valhalla.integration.converter import SubtitleSegment, TranscriptionError, WhisperConfig, WhisperTranscriber
+from integration.converter import SubtitleSegment, TranscriptionError, WhisperConfig, WhisperTranscriber
 
 
 def _interrupted_segments() -> Iterator[SimpleNamespace]:

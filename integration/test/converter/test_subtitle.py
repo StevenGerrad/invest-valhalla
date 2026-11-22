@@ -9,7 +9,7 @@
 
 import unittest
 
-from valhalla.integration.converter import SubtitleSegment, render_srt
+from integration.converter import SubtitleSegment, render_srt
 
 
 class SubtitleTest(unittest.TestCase):

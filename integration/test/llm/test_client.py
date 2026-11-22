@@ -10,7 +10,7 @@ from unittest.mock import patch
 import httpx
 from openai import OpenAI
 
-from valhalla.integration.llm import ChatBackend, ChatBackendError, ChatErrorKind, create_chat_backend
+from integration.llm import ChatBackend, ChatBackendError, ChatErrorKind, create_chat_backend
 
 FAKE_KEY = "private-test-key"
 PRIVATE_UPSTREAM_BODY = "private-upstream-body"
@@ -78,7 +78,7 @@ class ChatBackendTests(unittest.TestCase):
         """
         http_client = httpx.Client(transport=httpx.MockTransport(handler))
         self.addCleanup(http_client.close)
-        with patch("valhalla.integration.llm.client.OpenAI", wraps=OpenAI) as sdk:
+        with patch("integration.llm.client.OpenAI", wraps=OpenAI) as sdk:
             sdk.side_effect = lambda **options: OpenAI(http_client=http_client, **options)
             backend = create_chat_backend(api_key=FAKE_KEY, provider=provider)
             self.assertEqual(sdk.call_args.kwargs["timeout"], 120)
@@ -125,7 +125,7 @@ class ChatBackendTests(unittest.TestCase):
         """验证缺少密钥和无效渠道会在构造 SDK 之前报错。"""
         cases = ((" ", None), (FAKE_KEY, "unknown"), (FAKE_KEY, ""))
         for api_key, provider in cases:
-            with self.subTest(provider=provider), patch("valhalla.integration.llm.client.OpenAI") as sdk:
+            with self.subTest(provider=provider), patch("integration.llm.client.OpenAI") as sdk:
                 with self.assertRaises(ChatBackendError) as caught:
                     create_chat_backend(api_key=api_key, provider=provider)
                 self.assertEqual(caught.exception.kind, ChatErrorKind.CONFIGURATION)
