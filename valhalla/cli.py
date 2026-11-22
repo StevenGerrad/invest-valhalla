@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from valhalla.core.logging import setup as setup_logging
+from valhalla.core.paths import DATA_DIR
 from valhalla.bilibili import BiliClient, load_credential_from_file, login_with_qrcode
 from valhalla.downloader import download_audio, convert_to_wav
 from valhalla.transcriber import Transcriber, srt_time
@@ -77,7 +78,7 @@ def main():
     parser.add_argument("--limit", type=int, default=0, help="最多处理多少个视频 (0=全部)")
     parser.add_argument("--model", default="turbo", help="Whisper 模型大小 (tiny/base/small/medium/large-v3/turbo)")
     parser.add_argument("--device", default="cpu", help="推理设备 (cpu/cuda)")
-    parser.add_argument("--output-dir", default="output", help="输出根目录")
+    parser.add_argument("--output-dir", default=str(DATA_DIR), help=f"资料根目录（默认：{DATA_DIR}）")
     parser.add_argument("--skip-existing", action="store_true", help="跳过已有字幕的视频")
     parser.add_argument("--keep-audio", action="store_true", help="保留下载的原始音频文件")
     parser.add_argument("--dry-run", action="store_true", help="只获取视频列表，不下载和转录")

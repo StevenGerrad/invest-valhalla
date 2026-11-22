@@ -18,6 +18,7 @@ venv/
 logs/
 audio/
 srt/
+/data/
 output/
 
 # Credentials (do NOT commit)

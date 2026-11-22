@@ -97,7 +97,7 @@ python -m valhalla.cli \
 | `--pages` | 爬取页数 (每页 30 个) | 1 |
 | `--limit` | 最多处理视频数 (0=全部) | 0 |
 | `--model` | Whisper 模型 (tiny/base/small/medium/large) | small |
-| `--output-dir` | 输出根目录 | output |
+| `--output-dir` | 资料根目录 | data |
 | `--skip-existing` | 跳过已有字幕 | false |
 | `--keep-audio` | 保留下载的音频 | false |
 | `--dry-run` | 仅列出视频不处理 | false |
@@ -106,10 +106,12 @@ python -m valhalla.cli \
 ## 输出结构
 
 ```
-output/{mid}/
-├── index.json        # 元数据索引 (可查询、搜索)
-└── srt/              # SRT 字幕文件
-    └── {bvid}.srt
+data/{mid}/
+├── index.json             # 元数据索引
+├── srt/
+│   └── {bvid}.srt         # 原始字幕
+└── processed/
+    └── {bvid}.json        # 启用语义处理后生成的纠错结果
 ```
 
 ## 依赖

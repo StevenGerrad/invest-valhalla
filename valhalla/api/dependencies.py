@@ -2,9 +2,9 @@
 import json
 import logging
 from functools import lru_cache
-from pathlib import Path
 
 from valhalla.core.llm import DeepSeekBackend
+from valhalla.core.paths import DATA_DIR
 from valhalla.rag.embeddings import BGEEmbedder
 from valhalla.rag.chunker import build_all_chunks
 from valhalla.rag.store import VectorStore
@@ -13,7 +13,6 @@ from valhalla.rag.generator import RAGGenerator
 from valhalla.agent.conversation import ConversationAgent
 
 logger = logging.getLogger(__name__)
-OUTPUT = Path("output")
 
 
 # ── 单例（应用生命周期内复用）─────────────────────
@@ -30,7 +29,7 @@ class AppState:
     @property
     def store(self) -> VectorStore:
         if self._store is None:
-            index_dir = OUTPUT / str(self.mid) / "faiss_index"
+            index_dir = DATA_DIR / str(self.mid) / "faiss_index"
             index_dir.mkdir(parents=True, exist_ok=True)
             self._store = VectorStore(str(index_dir))
             self._store.load()
@@ -49,7 +48,7 @@ class AppState:
     def retriever(self) -> HybridRetriever:
         if self._retriever is None:
             self._retriever = HybridRetriever(self.store, self.embedder)
-            processed_dir = OUTPUT / str(self.mid) / "processed"
+            processed_dir = DATA_DIR / str(self.mid) / "processed"
             dates = _load_dates(self.mid)
             chunks = build_all_chunks(processed_dir, dates)
             self._retriever.set_corpus(chunks)
@@ -100,7 +99,7 @@ def get_session_manager(mid: int) -> SessionManager:
 # ── 工具 ──────────────────────────────────────────
 
 def _load_dates(mid: int) -> dict[str, str]:
-    idx_path = OUTPUT / str(mid) / "index.json"
+    idx_path = DATA_DIR / str(mid) / "index.json"
     if not idx_path.exists():
         return {}
     data = json.loads(idx_path.read_text(encoding="utf-8"))

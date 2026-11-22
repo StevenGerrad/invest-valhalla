@@ -4,18 +4,16 @@ import json
 import logging
 import sys
 import io
-from pathlib import Path
 
 from valhalla.core.logging import setup as setup_logging
 from valhalla.core.llm import DeepSeekBackend
+from valhalla.core.paths import DATA_DIR
 from valhalla.rag.embeddings import BGEEmbedder
 from valhalla.rag.chunker import build_all_chunks
 from valhalla.rag.store import VectorStore
 from valhalla.rag.retriever import HybridRetriever
 from valhalla.rag.generator import RAGGenerator
 from valhalla.eval.benchmark import run_full_eval
-
-OUTPUT = Path("output")
 
 
 def main():
@@ -27,7 +25,7 @@ def main():
     setup_logging()
     logger = logging.getLogger(__name__)
     mid = args.mid
-    db_path = OUTPUT / str(mid) / "faiss_index"
+    db_path = DATA_DIR / str(mid) / "faiss_index"
     if not db_path.exists():
         print("向量库未建。请先运行: python -m valhalla.rag build --mid 322005137")
         return
@@ -37,9 +35,9 @@ def main():
     embedder = BGEEmbedder()
     retriever = HybridRetriever(store, embedder)
 
-    processed_dir = OUTPUT / str(mid) / "processed"
+    processed_dir = DATA_DIR / str(mid) / "processed"
     dates = {}
-    idx_path = OUTPUT / str(mid) / "index.json"
+    idx_path = DATA_DIR / str(mid) / "index.json"
     if idx_path.exists():
         dates = {bvid: v.get("published_date", "")
                  for bvid, v in json.loads(idx_path.read_text(encoding="utf-8")).get("videos", {}).items()}
