@@ -1,6 +1,6 @@
 # 数据采集
 
-采集模块为后续采集流程提供数字人登记、资料实体与存储接口。当前可以构造领域对象，供新服务层和存储实现接入。实际拉取仍使用项目已有的 `valhalla.cli`。
+采集模块提供数字人登记、资料实体、存储接口和采集服务接口。实际拉取仍使用项目已有的 `valhalla.cli`。
 
 ## 使用实体和接口
 
@@ -47,6 +47,18 @@ material = SubtitleMaterialEntity(
 - 资料用 `MaterialRepository.get()` 读取单份完整实体，用 `list_by_author()` 读取指定作者的全部资料实体，用 `save()` 统一保存 `MaterialEntity`。
 
 以上为存储接口契约。
+
+### 服务接口
+
+- `AvatarService` 查询、登记和更新数字人及其平台账号。通过 `list_avatars()` 取得全部 `AvatarInfo`，可直接用查询结果指定后续操作的目标。
+- `MaterialService` 的 `list_remote_materials()` 按数字人和平台列出远端资料，`collect_material()` 与 `batch_collect_material()` 根据选定的 `source_key` 采集原始内容。查询本地资料时返回 `MaterialDetail`，删除资料时移除原始稿与加工稿。
+- `MaterialProcessService` 的 `process_material()` 与 `batch_process_material()` 加工已保存的原始资料。`delete_processed_material()` 与 `batch_delete_processed_material()` 仅移除加工稿。
+
+服务方法是异步契约。单条删除成功时返回 `None`，失败时抛出异常。批量操作按输入顺序逐项返回结果。
+
+`CollectionResult`、`ProcessingResult` 和 `DeletionResult` 共用 `ResultStatus`。成功使用 `SUCCESS`，跳过使用 `SKIPPED`，无需加工使用 `NOT_REQUIRED`，批量项失败使用 `FAILED`。
+
+单条和批量的采集、加工参数均使用 `skip_existing`。默认 `True`，采集时跳过已有原稿的资料，加工时跳过已有加工稿的资料。传入 `False` 可重新执行相应操作。
 
 ## 继续使用现有采集命令
 

@@ -1,6 +1,6 @@
 # 数据采集开发说明
 
-当前实现定义数字人登记和采集资料实体，以及对应的 Repository 契约。使用方式见 [README.md](README.md)。PostgreSQL 备选方案、暂缓采用的原因及 DDL 草案见[采集存储设计](docs/spec/采集存储设计.md)。
+当前定义数字人登记、采集资料实体、Repository 和采集服务契约。使用方式见 [README.md](README.md)。PostgreSQL 备选方案、暂缓采用的原因及 DDL 草案见[采集存储设计](docs/spec/采集存储设计.md)。
 
 ## 开发约定
 
@@ -12,6 +12,8 @@
 - 服务层依赖 Repository 接口。后续 `RepositoryImpl` 负责领域实体与私有 DO 的转换，按作者和内容 ID 分别保存 `srt/` 和 `processed/` 文件。
 - 资料仓储以完整的 `MaterialEntity` 为读写单位。存储实现按实体的具体类型处理内容的落盘和还原。
 - 新采集流程由 `pipeline` 编排，通过公开接口调用通用能力接入和存储。CLI 与未来管理界面的入口归 `interaction`。
+- `AvatarService` 管理数字人与平台账号。`MaterialService` 负责资料的浏览、采集和删除。`MaterialProcessService` 使用已保存的原始内容生成加工稿，删除加工稿时保留原始资料。
+- 交互层从服务取得 `AvatarInfo`、`MaterialDetail` 等输出类型。它们可以通过 `AvatarIndex` 或 `MaterialIndex` 充当后续服务调用的目标。领域实体在服务与仓储之间传递。
 - 当前生产数据由旧 CLI 管理。新增文件存储实现时，先用临时目录或副本验证兼容性。
 
 ## 代码结构
@@ -24,11 +26,24 @@ ingestion/
 │   └── spec/
 │       └── 采集存储设计.md            # PostgreSQL 备选方案、暂缓采用的原因及 SQL 草案
 ├── entity/
-│   ├── __init__.py                  # 导出领域实体、字幕片段和平台枚举
+│   ├── __init__.py                  # 导出领域实体、身份索引、字幕片段和平台枚举
 │   ├── avatar.py                    # 定义数字人的本地 ID、名称与平台主页列表
+│   ├── index.py                     # 定义数字人与资料的身份索引接口
 │   ├── material.py                  # 定义资料抽象基类及其公共字段
 │   ├── platform.py                  # 定义来源平台枚举及其存储标识
 │   └── subtitle_material.py         # 定义字幕资料子类和带时间的字幕片段
+├── pipeline/
+│   ├── __init__.py                  # 导出服务接口和公共类型
+│   ├── avatar_service.py            # 声明数字人及平台账号管理接口
+│   ├── constant/
+│   │   └── result_status.py         # 定义采集、加工和删除共用的结果状态
+│   ├── dto/
+│   │   ├── avatar_service_dto.py           # 定义数字人服务的参数和返回信息
+│   │   ├── material_process_service_dto.py # 定义资料加工服务的参数和执行情况
+│   │   └── material_service_dto.py         # 定义资料浏览、采集和删除使用的参数与返回类型
+│   ├── error.py                     # 定义服务操作和冲突异常
+│   ├── material_process_service.py  # 声明加工与删除加工稿的接口
+│   └── material_service.py          # 声明资料的浏览、采集和删除接口
 └── storage/
     ├── __init__.py                  # 导出两个 Repository 接口
     ├── avatar_repository.py         # 声明数字人登记的创建、更新和查询接口
@@ -40,7 +55,7 @@ ingestion/
 从项目根目录验证实体和接口可导入。
 
 ```powershell
-uv run --locked python -c "from ingestion.entity import AvatarEntity, MaterialEntity, SubtitleMaterialEntity, SubtitleSegment; from ingestion.storage import AvatarRepository, MaterialRepository"
+uv run --locked python -c "from ingestion.entity import AvatarIndex, MaterialIndex; from ingestion.pipeline import AvatarService, MaterialService, MaterialProcessService; from ingestion.storage import AvatarRepository, MaterialRepository"
 ```
 
 后续单元测试放在 `test/` 下，按被测模块的相对路径组织，例如 `storage/avatar_repository.py` 对应 `test/storage/test_avatar_repository.py`。通用约定见[项目代码规范](../docs/spec/项目代码规范.md)，文档字符串和测试执行方式见 [Python 代码规范](../docs/spec/Python代码规范.md)。

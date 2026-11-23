@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 
+from .index import AvatarIndex
+
 
 @dataclass(frozen=True)
-class AvatarEntity:
+class AvatarEntity(AvatarIndex):
     """表示作为本地作者登记的数字人及其平台主页。
 
     本地 ID 的分配和登记文件格式由存储实现负责。
@@ -16,3 +18,10 @@ class AvatarEntity:
     name: str
     #: 可直接打开的各个平台的作者主页地址。空列表表示尚未登记主页。
     source_urls: list[str]
+
+    def get_avatar_index(self) -> int:
+        """读取数字人的本地标识。
+
+        :returns: 已登记数字人的本地 ID。
+        """
+        return self.id

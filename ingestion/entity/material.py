@@ -4,11 +4,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from .index import MaterialIndex
 from .platform import Platform
 
 
 @dataclass(frozen=True)
-class MaterialEntity(ABC):
+class MaterialEntity(ABC, MaterialIndex):
     """定义采集资料的身份、来源及审计信息。
 
     各资料子类负责自己的内容结构。ID 分配、时间维护和文件布局由存储实现负责。
@@ -36,6 +37,13 @@ class MaterialEntity(ABC):
     metadata: dict[str, object] = field(default_factory=dict)
     #: 原始稿的二进制内容哈希，与未来存储的原始稿行对应。为 None 表示尚未计算。
     content_hash: bytes | None = None
+
+    def get_material_index(self) -> int:
+        """读取资料的本地标识。
+
+        :returns: 已保存资料的本地 ID。
+        """
+        return self.id
 
     @property
     @abstractmethod
