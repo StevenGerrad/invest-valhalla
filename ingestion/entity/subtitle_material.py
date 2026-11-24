@@ -42,6 +42,8 @@ class SubtitleMaterialEntity(MaterialEntity):
     raw_segments: list[SubtitleSegment]
     #: 按字幕顺序保存的优化正文片段。为空表示暂无优化稿。
     optimized_segments: list[SubtitleSegment] = field(default_factory=list)
+    #: 加工生成的全文关键词。没有加工稿或未提取时为空。
+    global_keywords: tuple[str, ...] = ()
 
     @property
     def content_type(self) -> str:

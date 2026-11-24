@@ -8,6 +8,15 @@ from ..entity import AvatarEntity
 class AvatarRepository(Protocol):
     """管理本地数字人登记，负责分配 ID 并交付已保存的领域实体。"""
 
+    def delete(self, avatar_id: int) -> None:
+        """删除指定的数字人登记。
+
+        :param avatar_id: 数字人的本地 ID。
+        :raises KeyError: 找不到该数字人。
+        :raises RepositoryConflictError: 该数字人仍有关联资料。
+        """
+        ...
+
     def get(self, avatar_id: int) -> AvatarEntity | None:
         """查询指定数字人的登记。
 

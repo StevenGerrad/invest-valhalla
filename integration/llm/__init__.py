@@ -1,4 +1,4 @@
---+"""向业务模块提供统一的文本模型接口。"""
+"""向业务模块提供统一的文本模型接口。"""
 
 from .client import ChatBackend, ChatBackendError, ChatErrorKind, create_chat_backend
 

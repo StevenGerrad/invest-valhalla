@@ -1,11 +1,11 @@
-"""定义资料浏览、采集和删除使用的参数与返回类型。"""
+"""定义资料浏览、采集和删除的参数与返回类型，以及共用的资料详情。"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from ...entity import MaterialIndex, Platform
-from ..constant.result_status import ResultStatus
+from ....entity import MaterialIndex, Platform
+from ...constant.result_status import ResultStatus
 
 
 @dataclass(frozen=True)

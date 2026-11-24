@@ -28,8 +28,9 @@ web = ["fastapi==0.137.0", "uvicorn==0.49.0"]
 version = {attr = "valhalla.__version__"}
 
 [tool.setuptools.packages.find]
-include = ["valhalla", "valhalla.*", "integration", "integration.*", "ingestion", "ingestion.*"]
-exclude = ["valhalla.*.test", "valhalla.*.test.*", "integration.test", "integration.test.*", "ingestion.test", "ingestion.test.*"]
+include = ["valhalla", "valhalla.*", "core", "core.*", "integration", "integration.*", "ingestion", "ingestion.*"]
+exclude = ["valhalla.*.test", "valhalla.*.test.*", "core.test", "core.test.*", "integration.test", "integration.test.*", "ingestion.test", "ingestion.test.*"]
 
 [tool.setuptools.package-data]
+"core" = ["config.toml"]
 "integration" = ["config.toml"]

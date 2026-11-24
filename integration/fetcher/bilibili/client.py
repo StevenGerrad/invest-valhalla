@@ -2,16 +2,21 @@
 
 import math
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 
 import httpx
 from bilibili_api import Credential, user, video
 from bilibili_api.channel_series import ChannelSeries, ChannelSeriesType
+from bilibili_api.exceptions import ApiException, CredentialNoSessdataException, ResponseCodeException
 
 from ...config import load_config_section
-from .auth import BilibiliCredential
+from ..address import CollectionKind
+from ..error import FetchError
+from .auth import BilibiliCredential, BilibiliSessionError, load_session_credential
 
 
 def _positive_int(value: int, name: str) -> int:
@@ -69,19 +74,36 @@ class BilibiliConfig:
         return cls(**load_config_section("bilibili", override))
 
 
-class CollectionKind(StrEnum):
-    """区分新版合集与旧版系列，用于选择对应的 B 站 API。"""
-
-    SEASON = "season"
-    SERIES = "series"
-
-
-class AudioUnavailableError(RuntimeError):
+class AudioUnavailableError(FetchError):
     """平台未提供带可用下载地址的音轨时，由音频下载接口抛出。"""
 
 
 class AudioDownloadError(OSError):
     """音频传输失败或响应无法形成完整文件时，由下载过程抛出。"""
+
+
+class BilibiliRequestError(FetchError):
+    """表示接入层无法完成 B 站请求，保留可安全展示的错误摘要。"""
+
+
+@contextmanager
+def _request_errors() -> Iterator[None]:
+    """将平台 SDK 错误转换为接入层错误并过滤原始响应内容。
+
+    :returns: 供 SDK 请求使用的上下文。
+    :raises BilibiliSessionError: 平台要求登录。
+    :raises BilibiliRequestError: 平台请求或响应解析失败。
+    """
+    try:
+        yield
+    except CredentialNoSessdataException:
+        raise BilibiliSessionError("B 站接口要求登录，请更新 .sessions/bilibili.json") from None
+    except ResponseCodeException as error:
+        if error.code == -101:
+            raise BilibiliSessionError("B 站接口要求登录，请更新 .sessions/bilibili.json") from None
+        raise BilibiliRequestError(f"B 站拒绝请求（状态码 {error.code}）") from None
+    except (ApiException, httpx.HTTPError, KeyError, TypeError, ValueError):
+        raise BilibiliRequestError("B 站请求失败或返回格式无效") from None
 
 
 @dataclass(frozen=True)
@@ -91,12 +113,20 @@ class VideoInfo:
     发布时间是 Unix 秒级时间戳，时长以秒计。源响应缺少相应信息时为 None。
     """
 
+    #: 平台的视频标识。
     bvid: str
+    #: 视频标题，平台未提供时为空字符串。
     title: str
+    #: 作者的公开显示名。
     author: str
+    #: 平台发布时间，单位为 Unix 秒。
     published_ts: int | None
+    #: 视频时长，单位为秒。
     duration_seconds: int | None
+    #: 视频的公开页面地址。
     source_url: str
+    #: 视频作者的 B 站账号 ID，平台未提供时为 None。
+    author_mid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +155,54 @@ class DownloadedAudio:
     bvid: str
     source_url: str
     size_bytes: int
+
+
+class BilibiliContentSource(Protocol):
+    """声明调用方使用的 B 站浏览与音频拉取能力。"""
+
+    async def list_creator_videos(
+        self, mid: int, *, page: int = 1, page_size: int | None = None,
+    ) -> VideoPage:
+        """读取作者的一页投稿。
+
+        :param mid: B 站作者账号 ID。
+        :param page: 从 1 开始的页码。
+        :param page_size: 页大小。为 None 时采用接入层默认值。
+        :returns: 归一化的投稿分页。
+        """
+        ...
+
+    async def list_collection_videos(
+        self, mid: int, collection_id: int, *,
+        kind: CollectionKind = CollectionKind.SEASON, page: int = 1, page_size: int | None = None,
+    ) -> VideoPage:
+        """读取作者所登记合集的一页资料。
+
+        :param mid: B 站作者账号 ID。
+        :param collection_id: 平台合集或系列 ID。
+        :param kind: 合集类型，默认使用新版合集。
+        :param page: 从 1 开始的页码。
+        :param page_size: 页大小。为 None 时采用接入层默认值。
+        :returns: 归一化的合集分页。
+        """
+        ...
+
+    async def get_video(self, bvid: str) -> VideoInfo:
+        """读取视频详情及来源作者。
+
+        :param bvid: 视频的 BV 号。
+        :returns: 归一化的视频详情。
+        """
+        ...
+
+    async def download_audio(self, bvid: str, destination: str | Path) -> DownloadedAudio:
+        """下载视频音轨到指定文件。
+
+        :param bvid: 视频的 BV 号。
+        :param destination: 完整下载后的目标路径。
+        :returns: 下载结果与来源信息。
+        """
+        ...
 
 
 def _source_url(bvid: str) -> str:
@@ -161,13 +239,16 @@ def _video_info(raw: dict) -> VideoInfo:
     bvid = raw["bvid"]
     # 发布时间字段因接口而异，依次尝试 pubdate、ctime 和 created。
     published = raw.get("pubdate") or raw.get("ctime") or raw.get("created")
+    owner = raw.get("owner") or {}
+    author_mid = owner.get("mid") or raw.get("mid")
     return VideoInfo(
         bvid=bvid,
         title=raw.get("title") or "",
-        author=raw.get("author") or (raw.get("owner") or {}).get("name") or "",
+        author=raw.get("author") or owner.get("name") or "",
         published_ts=int(published) if published else None,
         duration_seconds=_duration_seconds(raw.get("duration") or raw.get("length")),
         source_url=_source_url(bvid),
+        author_mid=int(author_mid) if author_mid else None,
     )
 
 
@@ -197,12 +278,17 @@ class BilibiliFetcher:
         credential: BilibiliCredential | None = None,
         *,
         config: BilibiliConfig | None = None,
+        session_dir: str | Path | None = None,
     ) -> None:
         """使用提供的凭据与配置初始化 B 站拉取客户端。
 
-        :param credential: 调用方提供的登录凭据。为 None 时匿名访问。
+        :param credential: 显式凭据，优先于会话目录。
         :param config: 已校验的适配器配置。为 None 时从模块默认配置加载。
+        :param session_dir: 会话目录。未指定或文件不存在时可匿名访问。
+        :raises BilibiliSessionError: 已提供的会话文件无效或过期。
         """
+        if credential is None and session_dir is not None:
+            credential = load_session_credential(session_dir)
         self._credential = credential._to_sdk() if credential is not None else Credential()
         self._config = config if config is not None else BilibiliConfig.load()
 
@@ -230,8 +316,9 @@ class BilibiliFetcher:
         """
         size = self._page_size(page, page_size)
         creator = user.User(uid=mid, credential=self._credential)
-        result = await creator.get_videos(pn=page, ps=size)
-        return _video_page(result["list"]["vlist"], page, size, result["page"]["count"])
+        with _request_errors():
+            result = await creator.get_videos(pn=page, ps=size)
+            return _video_page(result["list"]["vlist"], page, size, result["page"]["count"])
 
     async def list_collection_videos(
         self,
@@ -260,12 +347,13 @@ class BilibiliFetcher:
         collection = ChannelSeries(
             uid=mid, type_=series_type, id_=collection_id, credential=self._credential,
         )
-        result = await collection.get_videos(pn=page, ps=size)
-        # 新版合集使用 archives，旧版系列使用 list，统一后再生成分页结果。
-        rows = result["archives"] if "archives" in result else result["list"]
-        pagination = result.get("page") or result.get("pagination") or {}
-        total = pagination.get("total", pagination.get("count"))
-        return _video_page(rows, page, size, total)
+        with _request_errors():
+            result = await collection.get_videos(pn=page, ps=size)
+            # 新版合集使用 archives，旧版系列使用 list，统一后再生成分页结果。
+            rows = result["archives"] if "archives" in result else result["list"]
+            pagination = result.get("page") or result.get("pagination") or {}
+            total = pagination.get("total", pagination.get("count"))
+            return _video_page(rows, page, size, total)
 
     async def get_video(self, bvid: str) -> VideoInfo:
         """查询视频详情。
@@ -274,7 +362,8 @@ class BilibiliFetcher:
         :returns: 含公开来源链接的 VideoInfo。
         """
         target = video.Video(bvid=bvid, credential=self._credential)
-        return _video_info(await target.get_info())
+        with _request_errors():
+            return _video_info(await target.get_info())
 
     async def download_audio(
         self,
@@ -301,8 +390,9 @@ class BilibiliFetcher:
             else _positive_timeout(timeout_seconds)
         )
         target = video.Video(bvid=bvid, credential=self._credential)
-        metadata = await target.get_info()
-        playback = await target.get_download_url(cid=metadata["cid"])
+        with _request_errors():
+            metadata = await target.get_info()
+            playback = await target.get_download_url(cid=metadata["cid"])
         # 平台可能返回驼峰或下划线字段。先排除没有下载地址的音轨，再按码率选择。
         tracks = (playback.get("dash") or {}).get("audio") or []
         usable_tracks = [track for track in tracks if track.get("baseUrl") or track.get("base_url")]

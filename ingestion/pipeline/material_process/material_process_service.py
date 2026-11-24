@@ -2,13 +2,13 @@
 
 from typing import Protocol
 
-from ..entity import MaterialIndex
+from ...entity import MaterialIndex
+from ..material.dto.material_service_dto import DeletionResult, MaterialSelectionParam
 from .dto.material_process_service_dto import (
     BatchProcessMaterialParam,
     ProcessingResult,
     ProcessMaterialParam,
 )
-from .dto.material_service_dto import DeletionResult, MaterialSelectionParam
 
 
 class MaterialProcessService(Protocol):

@@ -1,12 +1,20 @@
 """管理 B 站登录凭据及扫码状态，二维码展示和轮询节奏由调用方控制。"""
 
 import asyncio
+import json
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
 from bilibili_api import Credential
 from bilibili_api.login_v2 import QrCodeLogin, QrCodeLoginEvents
+
+from ..error import FetchError
+
+
+class BilibiliSessionError(FetchError):
+    """表示本地会话不可用或平台要求登录，消息可直接展示给用户。"""
 
 
 @dataclass(frozen=True)
@@ -16,11 +24,17 @@ class BilibiliCredential:
     供接入层与调用方传递凭据。由调用方决定持久化位置，具体 SDK 对象只在接入边界创建。
     """
 
+    #: 登录会话 Cookie。
     sessdata: str | None = field(default=None, repr=False)
+    #: 平台的请求校验 Cookie。
     bili_jct: str | None = field(default=None, repr=False)
+    #: 平台提供的第一类设备标识。
     buvid3: str | None = field(default=None, repr=False)
+    #: 平台提供的第二类设备标识。
     buvid4: str | None = field(default=None, repr=False)
+    #: 登录账号的用户标识。
     dedeuserid: str | None = field(default=None, repr=False)
+    #: 平台提供的会话刷新凭据。
     ac_time_value: str | None = field(default=None, repr=False)
 
     def _to_sdk(self) -> Credential:
@@ -56,6 +70,42 @@ def load_credential_file(path: str | Path) -> BilibiliCredential:
     if "sessdata" not in values:
         raise ValueError("Bilibili credential file must contain SESSDATA")
     return BilibiliCredential(**values)
+
+
+def load_session_credential(session_dir: str | Path) -> BilibiliCredential | None:
+    """读取指定目录中的 B 站临时登录会话。
+
+    :param session_dir: 项目级会话目录。
+    :returns: 有效的登录凭据。会话文件不存在时返回 None。
+    :raises BilibiliSessionError: 会话文件无法读取、格式不完整或已过期。
+    """
+    try:
+        data = json.loads((Path(session_dir) / "bilibili.json").read_text(encoding="utf-8-sig"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        # 解析器的原始错误可能含文件内容，只提供固定的错误说明。
+        raise BilibiliSessionError("无法读取 .sessions/bilibili.json，请重新登录 B 站") from None
+
+    try:
+        saved_at = datetime.fromisoformat(data["saved_at"])
+        expires_at = datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") is not None else None
+        fields = {
+            key: data["credential"].get(key)
+            for key in ("sessdata", "bili_jct", "buvid3", "buvid4", "dedeuserid", "ac_time_value")
+        }
+        if saved_at.tzinfo is None or (expires_at is not None and expires_at.tzinfo is None):
+            raise ValueError("会话时间缺少时区")
+        if any(value is not None and not isinstance(value, str) for value in fields.values()):
+            raise ValueError("会话字段须为字符串")
+        if not (fields["sessdata"] or "").strip():
+            raise ValueError("缺少会话")
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise BilibiliSessionError("B 站会话文件格式无效，请重新登录 B 站") from None
+
+    if expires_at is not None and expires_at <= datetime.now(expires_at.tzinfo):
+        raise BilibiliSessionError("B 站会话已过期，请重新登录 B 站")
+    return BilibiliCredential(**fields)
 
 
 class QrLoginStatus(StrEnum):

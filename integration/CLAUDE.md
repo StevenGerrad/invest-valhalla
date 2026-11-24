@@ -5,10 +5,10 @@
 ## 开发约定
 
 - 调用方使用各子包的公开入口。平台 SDK 响应、流地址和供应商请求格式在接入实现中处理。
-- 集中配置在 `config.toml`，按能力分节。调用方显式传入凭据。密钥、签名地址等敏感值遵循[项目开发规范](../docs/spec/项目开发规范.md)。
+- 集中配置在 `config.toml`，按能力分节。调用方传入长期凭据或指定平台会话目录。密钥、会话和签名地址遵循[项目开发规范](../docs/development/项目开发规范.md)。
 - B 站读取与扫码接口为异步调用。媒体转换与文本模型当前使用同步接口。调用方负责调度、展示和重试。
 - 媒体和字幕位置以媒体时间轴为准。网页文本保留 HTML 源行列位置。定位信息应随结果一起返回，方便后续引用。
-- 测试布局遵循[项目代码规范](../docs/spec/项目代码规范.md)，文档字符串和测试执行方式遵循 [Python 代码规范](../docs/spec/Python代码规范.md)。
+- 测试布局遵循[项目代码规范](../docs/development/项目代码规范.md)，文档字符串和测试执行方式遵循 [Python 代码规范](../docs/development/Python代码规范.md)。
 
 ## 代码结构
 
@@ -19,9 +19,11 @@ integration/
 ├── config.py                        # 加载配置默认值并合并指定节的本地覆盖项
 ├── config.toml                      # B 站、模型渠道、FFmpeg 和 Whisper 公开配置
 ├── fetcher/
+│   ├── address.py                   # 解析 B 站作者主页及合集标识
+│   ├── error.py                     # 定义拉取能力向调用方报告的异常
 │   └── bilibili/
 │       ├── __init__.py              # 导出 B 站接入的公开函数、类型和异常
-│       ├── auth.py                  # 读取旧凭据文件，创建二维码并查询登录状态
+│       ├── auth.py                  # 读取平台临时会话与旧凭据，创建二维码并查询登录状态
 │       └── client.py                # 读取投稿、合集和视频详情，下载音频并检查完整性
 ├── converter/
 │   ├── __init__.py                  # 导出转换函数、配置、结果类型和异常
@@ -36,7 +38,8 @@ integration/
     ├── fetcher/
     │   └── bilibili/
     │       ├── test_auth.py         # 模拟扫码状态、终态复用和旧凭据读取
-    │       └── test_client.py       # 模拟分页、元数据归一化和音频下载失败恢复
+    │       ├── test_client.py       # 模拟分页、元数据归一化和音频下载失败恢复
+    │       └── test_session.py      # 验证会话读取、错误脱敏和作者 MID
     ├── converter/
     │   ├── test_audio.py            # 验证 FFmpeg 参数、原子替换和超时处理
     │   ├── test_subtitle.py         # 验证时间戳舍入和非法时间判断

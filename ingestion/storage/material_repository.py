@@ -1,5 +1,6 @@
 """定义采集资料的存储接口。"""
 
+from datetime import datetime
 from typing import Protocol
 
 from ..entity import MaterialEntity, Platform
@@ -26,9 +27,34 @@ class MaterialRepository(Protocol):
         """
         ...
 
-    def save(self, material: MaterialEntity) -> None:
+    def get_by_id(self, material_id: int) -> MaterialEntity | None:
+        """按本地 ID 查询完整资料。
+
+        :param material_id: 本地资料 ID。
+        :returns: 完整的资料实体，找不到时返回 None。
+        """
+        ...
+
+    def reserve_id(self) -> int:
+        """预留一个资料 ID，供调用方构造待保存实体。
+
+        :returns: 唯一的本地自增 ID。保存失败时允许出现编号间隙。
+        """
+        ...
+
+    def save(self, material: MaterialEntity, *, expected_updated_at: datetime | None = None) -> None:
         """保存一份完整的资料实体。
 
         :param material: 由具体资料子类表示的实体。
+        :param expected_updated_at: 有值时仅在当前记录的修改时间仍等于此值时更新。
+        :raises RepositoryConflictError: 来源已登记，或待更新记录已改变。
+        """
+        ...
+
+    def delete(self, material_id: int) -> None:
+        """删除整份资料及它的所有稿件。
+
+        :param material_id: 本地资料 ID。
+        :raises KeyError: 找不到该资料。
         """
         ...

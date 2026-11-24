@@ -1,0 +1,5 @@
+[logging]
+level = "INFO"
+app_retention_days = 14
+error_retention_days = 90
+access_retention_days = 30

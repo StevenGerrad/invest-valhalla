@@ -1,6 +1,50 @@
 # 数据采集
 
-采集模块提供数字人登记、资料实体、存储接口和采集服务接口。实际拉取仍使用项目已有的 `valhalla.cli`。
+采集模块提供数字人登记、B 站投稿与合集浏览、字幕采集和 Agent 加工。新命令使用独立的本地文件仓储。
+
+## 使用新采集命令
+
+从项目根目录运行。浏览远端需要 `bilibili`，采集字幕还需要 `transcription` 和 FFmpeg，加工字幕需要 `agent` 和对应模型的 API Key。
+
+```powershell
+uv sync --locked --extra bilibili --extra transcription --extra agent
+uv run --locked --extra bilibili --extra transcription --extra agent python -m ingestion.interaction.cli --help
+```
+
+初次登记博主可以通过服务接口完成，例如在项目根目录运行以下 Python 代码。
+
+```python
+import asyncio
+from pathlib import Path
+
+from ingestion.entity import Platform
+from ingestion.pipeline import AvatarPlatformParam, CreateAvatarParam
+from ingestion.pipeline.avatar.impl.avatar_service_impl import AvatarServiceImpl
+from ingestion.storage.impl.local_file.avatar_repository_impl import AvatarRepositoryImpl
+from ingestion.storage.impl.local_file.material_repository_impl import MaterialRepositoryImpl
+
+data = Path("data/ingestion")
+service = AvatarServiceImpl(AvatarRepositoryImpl(data), MaterialRepositoryImpl(data))
+account = AvatarPlatformParam(Platform.BILIBILI, "https://space.bilibili.com/322005137")
+avatar = asyncio.run(service.create_avatar(CreateAvatarParam("示例作者", [account])))
+print(avatar.id)
+```
+
+按上一步返回的本地博主 ID 浏览。采集后使用命令输出的本地资料 ID 查看或加工。
+
+```powershell
+python -m ingestion.interaction.cli avatar list
+python -m ingestion.interaction.cli material list-remote --avatar-id 1 --platform bilibili --page 1
+python -m ingestion.interaction.cli material collect --avatar-id 1 --platform bilibili --source-key BV1xx411c7mD
+python -m ingestion.interaction.cli material show --material-id 1
+python -m ingestion.interaction.cli material process --material-id 1
+```
+
+上述命令使用已安装依赖的项目 Python 环境。B 站合集可传 `--collection-key 123` 或 `--collection-key series:123`。需要登录时，通过扫码获得会话并保存到根目录的 `.sessions/bilibili.json`。加工默认使用 `DEEPSEEK_API_KEY`。可通过环境变量或 `.env` 中的 `VALHALLA_LLM_PROVIDER=tokenhub` 切到 TokenHub，并提供 `TOKENHUB_API_KEY`。 [会话文件格式](../integration/README.md#b-站内容拉取)
+
+新仓储将作者登记和资料索引写入 `data/ingestion/`，原始 SRT 和加工 JSON 分别保存在作者及平台对应的 `srt/`、`processed/` 目录。
+
+新 CLI 的日志写入 `logs/ingestion/`。用日志行中的 `run_id` 串联同一次采集、加工或查询。 [日志排查说明](../core/README.md)
 
 ## 使用实体和接口
 
@@ -43,10 +87,8 @@ material = SubtitleMaterialEntity(
 
 ### 仓储接口
 
-- 数字人登记用 `AvatarRepository.create()` 分配本地 ID，用 `update()` 更新现有登记，用 `get()` 或 `list_all()` 读取登记。
-- 资料用 `MaterialRepository.get()` 读取单份完整实体，用 `list_by_author()` 读取指定作者的全部资料实体，用 `save()` 统一保存 `MaterialEntity`。
-
-以上为存储接口契约。
+- 数字人登记用 `AvatarRepository.create()` 分配本地 ID，用 `update()` 更新现有登记，用 `get()` 或 `list_all()` 读取登记，用 `delete()` 删除无资料的作者。
+- 资料用 `MaterialRepository.get()` 按来源读取，用 `get_by_id()` 按本地 ID 读取，用 `list_by_author()` 读取指定作者的全部资料。统一使用 `save()` 保存完整实体。
 
 ### 服务接口
 

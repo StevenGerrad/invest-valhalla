@@ -1,9 +1,9 @@
-"""定义数字人服务的输入参数和返回信息。"""
+"""定义数字人登记服务的输入参数和返回信息。"""
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-from ...entity import AvatarIndex, Platform
+from ....entity import AvatarIndex, Platform
 
 
 @dataclass(frozen=True)

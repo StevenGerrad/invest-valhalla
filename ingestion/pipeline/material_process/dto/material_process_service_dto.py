@@ -3,9 +3,9 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from ...entity import MaterialIndex
-from ..constant.result_status import ResultStatus
-from .material_service_dto import MaterialDetail
+from ....entity import MaterialIndex
+from ...constant.result_status import ResultStatus
+from ...material.dto.material_service_dto import MaterialDetail
 
 
 @dataclass(frozen=True)

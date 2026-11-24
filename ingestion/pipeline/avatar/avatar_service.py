@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from ..entity import AvatarIndex, Platform
+from ...entity import AvatarIndex, Platform
 from .dto.avatar_service_dto import AvatarInfo, AvatarPlatformParam, CreateAvatarParam, UpdateAvatarParam
 
 

@@ -32,7 +32,18 @@ async def main():
 asyncio.run(main())
 ```
 
-也可以用 `list_collection_videos` 读取合集，用 `get_video` 读取详情，或用 `download_audio(bvid, destination)` 下载音频。需要登录时，使用 `load_credential_file` 读取已有凭据并传给 `BilibiliFetcher`。扫码登录由调用方展示 `start_qr_login` 返回的二维码，并用 `poll_qr_login` 查询状态。
+也可以用 `list_collection_videos` 读取合集，用 `get_video` 读取含作者 MID 的详情，或用 `download_audio(bvid, destination)` 下载音频。扫码登录由调用方展示 `start_qr_login` 返回的二维码，并用 `poll_qr_login` 查询状态。
+
+登录后，由开发者或编码工具将会话写到项目根目录的 `.sessions/bilibili.json`。`BilibiliFetcher(session_dir=Path(".sessions"))` 会读取这个文件。旧版凭据文件仍可通过 `load_credential_file` 显式读取并传入客户端。
+
+```json
+{
+  "saved_at": "2026-11-24T12:00:00+08:00",
+  "credential": {"sessdata": "<会话值>"}
+}
+```
+
+`credential` 可同时包含扫码结果中的 `bili_jct`、`buvid3`、`buvid4`、`dedeuserid` 和 `ac_time_value`。平台提供可信过期时间时，加上带时区的 `expires_at`。更新时先写同目录临时文件，再替换会话文件。会话缺失时接入层尝试公开接口，登录失效后重新扫码。
 
 ## 内容转换
 
@@ -50,8 +61,6 @@ Path("example.srt").write_text(render_srt(segments), encoding="utf-8")
 
 ## 文本模型
 
-当前分支的 [模型包入口](llm/__init__.py) 会在导入时抛出 `TypeError`。下面是入口修复后的调用方式。
-
 ```python
 import os
 
@@ -64,4 +73,4 @@ print(answer)
 
 切换到 TokenHub 时，使用 `provider="tokenhub"` 并传入 `TOKENHUB_API_KEY`。流式调用使用 `chat_stream`，收到 `done` 表示正文完整。调用失败可捕获 `ChatBackendError` 并读取 `kind`。
 
-默认分页、下载超时、模型渠道和转换参数统一在 [config.toml](config.toml) 中维护。密钥由调用方注入，项目本地凭据按[开发规范](../docs/spec/项目开发规范.md)保管。开发约定和代码索引见 [CLAUDE.md](CLAUDE.md)。
+默认分页、下载超时、模型渠道和转换参数统一在 [config.toml](config.toml) 中维护。密钥由调用方注入，项目本地凭据按[开发规范](../docs/development/项目开发规范.md)保管。开发约定和代码索引见 [CLAUDE.md](CLAUDE.md)。

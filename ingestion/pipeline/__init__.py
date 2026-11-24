@@ -1,20 +1,16 @@
 """导出数据采集服务接口与交互层共享的类型。"""
 
-from .avatar_service import AvatarService
-from .constant.result_status import ResultStatus
-from .dto.avatar_service_dto import (
+from .avatar.avatar_service import AvatarService
+from .avatar.dto.avatar_service_dto import (
     AvatarInfo,
     AvatarPlatformInfo,
     AvatarPlatformParam,
     CreateAvatarParam,
     UpdateAvatarParam,
 )
-from .dto.material_process_service_dto import (
-    BatchProcessMaterialParam,
-    ProcessingResult,
-    ProcessMaterialParam,
-)
-from .dto.material_service_dto import (
+from .constant.result_status import ResultStatus
+from .error import IngestionConflictError, IngestionError
+from .material.dto.material_service_dto import (
     BatchCollectMaterialParam,
     CollectMaterialParam,
     CollectionResult,
@@ -27,9 +23,13 @@ from .dto.material_service_dto import (
     SubtitleMaterialDetail,
     SubtitleSegmentInfo,
 )
-from .error import IngestionConflictError, IngestionError
-from .material_process_service import MaterialProcessService
-from .material_service import MaterialService
+from .material.material_service import MaterialService
+from .material_process.dto.material_process_service_dto import (
+    BatchProcessMaterialParam,
+    ProcessingResult,
+    ProcessMaterialParam,
+)
+from .material_process.material_process_service import MaterialProcessService
 
 __all__ = [
     "AvatarInfo",

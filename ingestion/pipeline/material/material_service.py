@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from ..entity import AvatarIndex, MaterialIndex, Platform
+from ...entity import AvatarIndex, MaterialIndex, Platform
 from .dto.material_service_dto import (
     BatchCollectMaterialParam,
     CollectMaterialParam,
