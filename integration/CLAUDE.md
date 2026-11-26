@@ -32,8 +32,11 @@ integration/
 │   ├── webpage.py                   # 从 HTML 提取正文段落，保留源行列位置
 │   └── whisper.py                   # 按需加载 Whisper 和 OpenCC，返回带时间戳的片段
 ├── llm/
-│   ├── __init__.py                  # 导出 ChatBackend、错误类型和后端创建入口
-│   └── client.py                    # 构建 OpenAI 兼容后端，统一回复、流式事件和错误
+│   ├── __init__.py                  # 导出模型目录、调用契约和后端创建入口
+│   ├── catalog.py                   # 读取供应商和模型目录，解析所选组合
+│   ├── client.py                    # 构建 OpenAI 兼容后端，统一回复、流式事件和错误
+│   ├── configured.py                # 读取全局密钥配置并创建或探测所选后端
+│   └── contracts.py                 # 定义不依赖供应商 SDK 的文本调用契约和错误类型
 └── test/
     ├── fetcher/
     │   └── bilibili/
@@ -46,6 +49,8 @@ integration/
     │   ├── test_webpage.py          # 验证正文提取、回退路径和源坐标
     │   └── test_whisper.py          # 验证模型惰性加载、片段位置和识别失败处理
     └── llm/
+        ├── test_catalog.py         # 验证目录、选择规则及无 SDK 时的导入
+        ├── test_configured.py      # 验证全局密钥读取、渠道选择和异常提示
         └── test_client.py          # 模拟模型渠道、请求格式、流式事件和异常
 ```
 

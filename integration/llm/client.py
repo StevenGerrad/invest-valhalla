@@ -2,8 +2,6 @@
 
 import math
 from collections.abc import Iterator
-from enum import StrEnum
-from typing import Literal, Protocol
 from urllib.parse import urlsplit
 
 import httpx
@@ -11,63 +9,8 @@ from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError
 from openai.types.chat import ChatCompletionMessageParam
 
 from ..config import load_config_section
-
-type ChatEvent = tuple[Literal["reasoning", "text", "ping", "done"], str]
-
-
-class ChatBackend(Protocol):
-    """约定业务模块使用的文本和流式调用方式，隔离供应商 SDK。"""
-
-    def chat(self, system: str, user: str) -> str:
-        """返回一轮对话的完整正文。
-
-        :param system: 系统提示词。
-        :param user: 用户消息。
-        :returns: 模型生成的完整文本。
-        :raises ChatBackendError: 请求失败或未得到完整正文。
-        """
-        ...
-
-    def chat_stream(self, system: str, user: str) -> Iterator[ChatEvent]:
-        """逐段返回思考、正文和心跳，正常结束时发送 done。
-
-        :param system: 系统提示词。
-        :param user: 用户消息。
-        :returns: 由事件类型和文本组成的迭代器，ping 和 done 的文本为空。
-        :raises ChatBackendError: 请求或迭代失败，或未得到完整正文。
-        """
-        ...
-
-
-class ChatErrorKind(StrEnum):
-    """提供供调用方判断的稳定错误类别。"""
-
-    CONFIGURATION = "configuration"
-    AUTHENTICATION = "authentication"
-    RATE_LIMIT = "rate_limit"
-    TIMEOUT = "timeout"
-    CONNECTION = "connection"
-    INCOMPLETE_RESPONSE = "incomplete_response"
-    UPSTREAM = "upstream"
-
-
-class ChatBackendError(RuntimeError):
-    """统一报告配置、服务调用和响应完整性问题。"""
-
-    def __init__(
-        self, kind: ChatErrorKind, provider: str | None = None, model: str | None = None,
-    ) -> None:
-        """保存可安全报告的错误上下文。
-
-        :param kind: 接入层错误类别。
-        :param provider: 已验证的配置渠道名，未知时为 None。
-        :param model: 已配置的模型 ID，未选定模型时为 None。
-        """
-        self.kind = kind
-        self.provider = provider
-        self.model = model
-        details = ", ".join(value for value in (provider, model) if value is not None)
-        super().__init__(f"模型接入错误 [{kind}]" + (f" ({details})" if details else ""))
+from .catalog import ChatModelCatalog, ChatModelInfo
+from .contracts import ChatBackend, ChatBackendError, ChatErrorKind, ChatEvent
 
 
 class _OpenAIChatBackend:
@@ -96,9 +39,31 @@ class _OpenAIChatBackend:
         :returns: 保留原始空白的模型正文。
         :raises ChatBackendError: 请求失败、正文为空或生成未正常结束。
         """
+        return self._complete(system, user, extra_body=self._extra_body)
+
+    def probe(self) -> None:
+        """用固定短提示确认模型渠道能够完成一次调用。
+
+        :raises ChatBackendError: 请求失败或模型未返回可用正文。
+        """
+        extra = self._extra_body.copy()
+        if self._provider == "deepseek":
+            # 探测的输出预算很小，关闭思考仅用于这次调用。
+            extra["thinking"] = {"type": "disabled"}
+        self._complete("只回复 OK。", "连接检查", extra_body=extra, max_tokens=16, timeout=10.0)
+
+    def _complete(self, system: str, user: str, **options: object) -> str:
+        """发送非流式请求并校验模型返回的正文。
+
+        :param system: 系统提示词。
+        :param user: 用户消息。
+        :param options: 传入接入 SDK 的请求选项。
+        :returns: 模型返回的完整正文。
+        :raises ChatBackendError: 请求失败或正文不完整。
+        """
         try:
             response = self._client.chat.completions.create(
-                model=self._model, messages=_messages(system, user), extra_body=self._extra_body,
+                model=self._model, messages=_messages(system, user), **options,
             )
         except APIError as exc:
             raise ChatBackendError(_error_kind(exc), self._provider, self._model) from None
@@ -199,34 +164,39 @@ def _error_kind(exc: APIError) -> ChatErrorKind:
     return ChatErrorKind.UPSTREAM
 
 
-def create_chat_backend(*, api_key: str, provider: str | None = None) -> ChatBackend:
+def create_chat_backend(*, api_key: str, provider: str | None = None, model: str | None = None) -> _OpenAIChatBackend:
     """按集中配置创建可独立使用的文本模型后端。
 
     :param api_key: 调用方提供的渠道密钥。
-    :param provider: 配置中的渠道名，为 None 时使用 llm.default_provider。
+    :param provider: 可选的供应商标识。未指定供应商和模型时使用 llm.default_provider。
+    :param model: 可选的模型标识。省略时使用所选渠道登记的第一个模型。
     :returns: 已绑定渠道和模型的文本后端。
-    :raises ChatBackendError: 密钥为空、渠道未知或渠道配置无效。
+    :raises ChatBackendError: 密钥为空、模型选择未知或渠道配置无效。
     """
     if not isinstance(api_key, str) or not api_key.strip():
         raise ChatBackendError(ChatErrorKind.CONFIGURATION)
 
     try:
         config = load_config_section("llm")
-        # 显式选择优先于配置默认值。空字符串是无效渠道，不会静默回退。
-        selected = config["default_provider"] if provider is None else provider
+        catalog = ChatModelCatalog(config)
+        if model is None:
+            # 保持旧工厂调用的行为，渠道未指定时使用原配置的默认渠道。
+            requested_provider = config["default_provider"] if provider is None else provider
+            selection = next(item for item in catalog.list_models() if item.provider == requested_provider)
+        else:
+            selection = catalog.resolve(provider=provider, model=model)
+        selected = selection.provider
         settings = config["providers"][selected]
-        model = settings["model"]
         base_url = settings["base_url"]
         timeout = config["timeout_seconds"]
         extra = settings.get("extra_body", {})
         url = urlsplit(base_url)
-    except (AttributeError, KeyError, OSError, TypeError, ValueError):
+    except (AttributeError, KeyError, OSError, StopIteration, TypeError, ValueError):
         raise ChatBackendError(ChatErrorKind.CONFIGURATION) from None
 
     # 扩展字段仅用于配置供应商选项，避免覆盖后端管理的请求字段。
     if (
-        not isinstance(model, str) or not model.strip()
-        or url.scheme != "https" or not url.hostname or url.username is not None
+        url.scheme != "https" or not url.hostname or url.username is not None
         or type(timeout) not in (int, float) or not math.isfinite(timeout) or timeout <= 0
         or not isinstance(extra, dict)
         or {"model", "messages", "stream", "stream_options"}.intersection(extra)
@@ -235,4 +205,17 @@ def create_chat_backend(*, api_key: str, provider: str | None = None) -> ChatBac
 
     # 每次调用只提交一次，由调用方决定是否重试可能已计费的请求。
     client = OpenAI(api_key=api_key.strip(), base_url=base_url, timeout=timeout, max_retries=0)
-    return _OpenAIChatBackend(client, selected, model, extra)
+    return _OpenAIChatBackend(client, selected, selection.model, extra)
+
+
+def prepare_chat_backend(*, api_key: str, selection: ChatModelInfo) -> ChatBackend:
+    """绑定已登记的模型，并完成一次真实探测后交给调用方。
+
+    :param api_key: 所选供应商的 API Key。
+    :param selection: 供应商和模型组合。
+    :returns: 已通过探测的后端。
+    :raises ChatBackendError: 模型配置或真实探测失败。
+    """
+    backend = create_chat_backend(api_key=api_key, provider=selection.provider, model=selection.model)
+    backend.probe()
+    return backend

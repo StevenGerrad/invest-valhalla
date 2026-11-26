@@ -61,16 +61,30 @@ Path("example.srt").write_text(render_srt(segments), encoding="utf-8")
 
 ## 文本模型
 
+`ChatModelCatalog` 提供模型目录。可通过 `list_chat_models()` 查询已登记的供应商和模型组合，无需 API Key 或模型 SDK。实际调用时由供应商校验凭据和访问权限。
+
+项目内的调用方可以直接使用 `create_configured_chat_backend(project_root=..., selection=...)`。通用能力接入从项目根目录的 `.env` 取得相应渠道的 API Key，运行环境中的非空同名变量优先。传入 `probe=True` 时会先发出一次探测请求。
+
 ```python
 import os
 
-from integration.llm import create_chat_backend
+from integration.llm import create_chat_backend, list_chat_models, resolve_chat_model
 
-backend = create_chat_backend(provider="deepseek", api_key=os.environ["DEEPSEEK_API_KEY"])
+for item in list_chat_models():
+    print(item.provider, item.model)
+
+selection = resolve_chat_model(provider="deepseek", model="deepseek-flash")
+backend = create_chat_backend(
+    provider=selection.provider,
+    model=selection.model,
+    api_key=os.environ["DEEPSEEK_API_KEY"],
+)
 answer = backend.chat("你是一个简洁的助手。", "请用一句话总结这段资料。")
 print(answer)
 ```
 
-切换到 TokenHub 时，使用 `provider="tokenhub"` 并传入 `TOKENHUB_API_KEY`。流式调用使用 `chat_stream`，收到 `done` 表示正文完整。调用失败可捕获 `ChatBackendError` 并读取 `kind`。
+切换到 TokenHub 时，选择 `tokenhub` 与 `hy4-flash`，并传入 `TOKENHUB_API_KEY`。渠道与模型组合由 `config.toml` 的 `llm.providers` 配置，每个渠道的 `models` 可登记多条。流式调用使用 `chat_stream`，收到 `done` 表示正文完整。调用失败可捕获 `ChatBackendError` 并读取 `kind`。
 
-默认分页、下载超时、模型渠道和转换参数统一在 [config.toml](config.toml) 中维护。密钥由调用方注入，项目本地凭据按[开发规范](../docs/development/项目开发规范.md)保管。开发约定和代码索引见 [CLAUDE.md](CLAUDE.md)。
+`prepare_chat_backend(api_key=..., selection=...)` 会发出一次短提示请求，通过后返回同一个后端供正式调用。采集后加工在实际需要处理字幕时才发起探测，探测请求不发送字幕内容。
+
+默认分页、下载超时、模型渠道和转换参数统一在 [config.toml](config.toml) 中维护。需要自行管理密钥的调用方可使用示例中的 `create_chat_backend()` 显式传入密钥。项目本地凭据按[开发规范](../docs/development/项目开发规范.md)保管。开发约定和代码索引见 [CLAUDE.md](CLAUDE.md)。

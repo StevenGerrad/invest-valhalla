@@ -10,7 +10,7 @@ from unittest.mock import patch
 import httpx
 from openai import OpenAI
 
-from integration.llm import ChatBackend, ChatBackendError, ChatErrorKind, create_chat_backend
+from integration.llm import ChatBackend, ChatBackendError, ChatErrorKind, ChatModelInfo, create_chat_backend, prepare_chat_backend
 
 FAKE_KEY = "private-test-key"
 PRIVATE_UPSTREAM_BODY = "private-upstream-body"
@@ -68,19 +68,24 @@ class ChatBackendTests(unittest.TestCase):
     """使用真实 OpenAI SDK 和模拟传输验证模型接入，无需凭据或网络。"""
 
     def _backend(
-        self, handler: Callable[[httpx.Request], httpx.Response], provider: str | None = None,
+        self,
+        handler: Callable[[httpx.Request], httpx.Response],
+        provider: str | None = None,
+        *,
+        model: str | None = None,
     ) -> ChatBackend:
         """构造由 HTTPX 模拟传输提供响应的后端。
 
         :param handler: 拦截并处理 HTTP 请求的函数。
         :param provider: 显式选择的渠道，为 None 时使用配置默认值。
+        :param model: 显式选择的模型，为 None 时使用该渠道的第一个模型。
         :returns: 使用测试凭据和模拟传输的模型后端。
         """
         http_client = httpx.Client(transport=httpx.MockTransport(handler))
         self.addCleanup(http_client.close)
         with patch("integration.llm.client.OpenAI", wraps=OpenAI) as sdk:
             sdk.side_effect = lambda **options: OpenAI(http_client=http_client, **options)
-            backend = create_chat_backend(api_key=FAKE_KEY, provider=provider)
+            backend = create_chat_backend(api_key=FAKE_KEY, provider=provider, model=model)
             self.assertEqual(sdk.call_args.kwargs["timeout"], 120)
         return backend
 
@@ -120,6 +125,53 @@ class ChatBackendTests(unittest.TestCase):
                     finally:
                         os.chdir(original)
                     self.assertEqual(backend.chat("系统", "问题"), " 保留空白 ")
+
+    def test_explicit_model_is_sent_for_selected_provider(self) -> None:
+        """同一供应商登记多个模型时，请求使用明确指定的模型。"""
+        config = {
+            "timeout_seconds": 120,
+            "providers": {"example": {"base_url": "https://example.test", "models": ["first", "second"]}},
+        }
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            """验证 SDK 请求中包含显式选择的模型。
+
+            :param request: SDK 实际生成的 HTTP 请求。
+            :returns: 固定的正常响应。
+            """
+            self.assertEqual(json.loads(request.content)["model"], "second")
+            return _completion("成功")
+
+        with patch("integration.llm.client.load_config_section", return_value=config):
+            backend = self._backend(respond, "example", model="second")
+            self.assertEqual(backend.chat("系统", "问题"), "成功")
+
+    def test_model_probe_uses_short_prompt_and_same_backend(self) -> None:
+        """探测使用固定短提示，正式请求复用选中的模型及客户端。"""
+        requests = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            """保存请求供探测与正式调用的对比。
+
+            :param request: SDK 发出的模拟请求。
+            :returns: 固定的正常响应。
+            """
+            requests.append((str(request.url), json.loads(request.content)))
+            return _completion("OK")
+
+        with httpx.Client(transport=httpx.MockTransport(respond)) as http_client:
+            with patch("integration.llm.client.OpenAI", side_effect=lambda **options: OpenAI(http_client=http_client, **options)):
+                backend = prepare_chat_backend(api_key=FAKE_KEY, selection=ChatModelInfo("deepseek", "deepseek-flash"))
+                self.assertEqual(backend.chat("纠错", "字幕原文"), "OK")
+
+        (probe_url, probe), (completion_url, completion) = requests
+        self.assertEqual(probe_url, completion_url)
+        self.assertEqual(probe["model"], completion["model"])
+        self.assertEqual(probe["max_tokens"], 16)
+        self.assertEqual(probe["thinking"], {"type": "disabled"})
+        self.assertEqual(probe["messages"][-1]["content"], "连接检查")
+        self.assertNotIn("thinking", completion)
+        self.assertEqual(completion["messages"][-1]["content"], "字幕原文")
 
     def test_rejects_missing_key_and_unknown_provider(self) -> None:
         """验证缺少密钥和无效渠道会在构造 SDK 之前报错。"""

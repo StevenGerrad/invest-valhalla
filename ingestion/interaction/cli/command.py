@@ -8,14 +8,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from time import perf_counter
 
+from integration.llm import resolve_chat_model
+
 from ...entity import AvatarIndex, MaterialIndex, Platform
-from ...pipeline import (
+from ...service import (
     AvatarService,
     BatchCollectMaterialParam,
     BatchProcessMaterialParam,
+    CollectAndProcessMaterialParam,
     CollectMaterialParam,
     IngestionError,
     ListRemoteMaterialsParam,
+    MaterialCollectAndProcessService,
     MaterialProcessService,
     MaterialService,
     ProcessMaterialParam,
@@ -171,6 +175,18 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_skip_option(collect, "默认跳过已有原稿的资料")
     collect.set_defaults(handler=_collect_material)
 
+    collect_and_process = material_commands.add_parser("collect-and-process", help="采集一份资料后直接加工")
+    _add_avatar_options(collect_and_process)
+    collect_and_process.add_argument(
+        "--source-key", action=_StoreOnce, required=True, help="平台内容标识，例如 B 站 BV 号",
+    )
+    collect_and_process.add_argument("--provider", help="模型供应商，例如 deepseek 或 tokenhub")
+    collect_and_process.add_argument("--model", help="模型标识，默认使用 DeepSeek Flash")
+    _add_skip_option(collect_and_process, "默认按阶段跳过已有原稿或加工稿")
+    collect_and_process.set_defaults(
+        service_name="MaterialCollectAndProcessService", handler=_collect_and_process_material,
+    )
+
     batch_collect = material_commands.add_parser("batch-collect", help="采集多份原始资料")
     _add_avatar_options(batch_collect)
     batch_collect.add_argument(
@@ -259,6 +275,25 @@ async def _collect_material(args: argparse.Namespace, service: MaterialService) 
     return display.show_results([result])
 
 
+async def _collect_and_process_material(
+    args: argparse.Namespace, service: MaterialCollectAndProcessService,
+) -> int:
+    """把一条 CLI 命令交给采集及加工服务。
+
+    :param args: 博主、平台、内容标识、选定模型和跳过策略。
+    :param service: 注入的采集并加工服务。
+    :returns: 两阶段均成功、跳过或无需加工时返回 0，失败时返回 1。
+    """
+    selection = None
+    if args.provider is not None or args.model is not None:
+        selection = resolve_chat_model(provider=args.provider, model=args.model)
+    param = CollectAndProcessMaterialParam(
+        source_key=args.source_key, model_selection=selection, skip_existing=args.skip_existing,
+    )
+    result = await service.collect_and_process_material(_AvatarRef(args.avatar_id), args.platform, param)
+    return display.show_collect_and_process_result(result)
+
+
 async def _batch_collect_material(args: argparse.Namespace, service: MaterialService) -> int:
     """按提交顺序转交多份原始资料的采集请求。
 
@@ -304,6 +339,7 @@ def main(
     avatar_service: AvatarService | None = None,
     material_service: MaterialService | None = None,
     material_process_service: MaterialProcessService | None = None,
+    material_collect_and_process_service: MaterialCollectAndProcessService | None = None,
 ) -> int:
     """解析命令并在单个事件循环中调用对应服务。
 
@@ -311,6 +347,7 @@ def main(
     :param avatar_service: 注入的博主管理服务。为 None 时只能查看其命令帮助。
     :param material_service: 注入的资料服务。为 None 时可查看其命令帮助。
     :param material_process_service: 注入的资料加工服务。为 None 时可查看其命令帮助。
+    :param material_collect_and_process_service: 注入的采集并加工服务。为 None 时可查看其命令帮助。
     :returns: 成功或帮助返回 0，业务失败返回 1，命令参数错误返回 2。
     """
     try:
@@ -326,6 +363,7 @@ def main(
         "AvatarService": avatar_service,
         "MaterialService": material_service,
         "MaterialProcessService": material_process_service,
+        "MaterialCollectAndProcessService": material_collect_and_process_service,
     }
     command = f"{args.command_group} {args.command_name}"
     started = perf_counter()

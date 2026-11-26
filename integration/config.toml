@@ -8,11 +8,11 @@ timeout_seconds = 120
 
 [llm.providers.deepseek]
 base_url = "https://api.deepseek.com"
-model = "deepseek-flash"
+models = ["deepseek-flash"]
 
 [llm.providers.tokenhub]
 base_url = "https://tokenhub.tencentmaas.com/v1"
-model = "hy4-flash"
+models = ["hy4-flash"]
 extra_body = { reasoning_effort = "no_think" }
 
 [ffmpeg]

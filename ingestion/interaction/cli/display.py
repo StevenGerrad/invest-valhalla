@@ -4,8 +4,9 @@ import sys
 from collections.abc import Sequence
 from datetime import datetime
 
-from ...pipeline import (
+from ...service import (
     AvatarInfo,
+    CollectAndProcessResult,
     CollectionResult,
     MaterialDetail,
     MaterialPage,
@@ -137,3 +138,17 @@ def show_results(results: Sequence[CollectionResult | ProcessingResult]) -> int:
         else:
             print(line, flush=True)
     return int(failed)
+
+
+def show_collect_and_process_result(result: CollectAndProcessResult) -> int:
+    """分别展示同一份资料的采集与加工结果。
+
+    :param result: 全链路服务返回的分阶段结果。
+    :returns: 有阶段失败时返回 1，否则返回 0。
+    """
+    print("采集")
+    collected = show_results([result.collection])
+    if result.processing is None:
+        return collected
+    print("加工")
+    return max(collected, show_results([result.processing]))

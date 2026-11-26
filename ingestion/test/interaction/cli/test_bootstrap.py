@@ -13,13 +13,14 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from ingestion.entity import Platform
 from ingestion.interaction.cli.bootstrap import run_cli
-from ingestion.pipeline import AvatarPlatformParam, CreateAvatarParam
-from ingestion.pipeline.avatar.impl.avatar_service_impl import AvatarServiceImpl
+from ingestion.service import AvatarPlatformParam, CreateAvatarParam
+from ingestion.service.avatar.impl.avatar_service_impl import AvatarServiceImpl
 from ingestion.storage.impl.local_file.avatar_repository_impl import AvatarRepositoryImpl
 from ingestion.storage.impl.local_file.material_repository_impl import MaterialRepositoryImpl
 from integration.converter import SubtitleSegment
 from integration.fetcher.bilibili import CollectionKind, VideoInfo, VideoPage
 from integration.fetcher.error import FetchError
+from integration.llm import ChatModelInfo
 
 _VIDEO = "BV1xx411c7mD"
 _OTHER_VIDEO = "BV1xx411c7mE"
@@ -60,7 +61,7 @@ class BootstrapTest(TestCase):
             patch("integration.fetcher.bilibili.BilibiliFetcher", return_value=remote) as fetcher,
             patch("ingestion.interaction.cli.bootstrap.extract_audio"),
             patch("ingestion.interaction.cli.bootstrap.WhisperTranscriber", return_value=transcriber),
-            patch("ingestion.interaction.cli.bootstrap._chat_backend", return_value=backend),
+            patch("ingestion.interaction.cli.bootstrap.create_configured_chat_backend", return_value=backend),
         ):
             self.assertEqual(self._run("avatar", "list")[0], 0)
             fetcher.assert_not_called()
@@ -110,6 +111,37 @@ class BootstrapTest(TestCase):
             self.assertEqual(updated.optimized_segments, [])
             self.assertEqual(updated.global_keywords, ())
             self.assertIn("重采后的字幕", self._run("material", "show", "--material-id", material_id)[1])
+
+    def test_collect_and_process_uses_selected_model(self) -> None:
+        """一次命令将指定模型交给加工服务，并同时保存两份字幕。"""
+        video = VideoInfo(_VIDEO, "示例", "作者", None, 2, f"https://example.test/{_VIDEO}", 42)
+        remote = Mock(get_video=AsyncMock(return_value=video), download_audio=AsyncMock())
+        transcriber = Mock()
+        transcriber.transcribe.return_value = (SubtitleSegment(0, 2, "原稿"),)
+        backend = Mock()
+        backend.chat.return_value = json.dumps({
+            "sections": [{"heading": "主题", "start_time": 0.0, "end_time": 2.0, "text": "加工稿"}],
+        })
+        with (
+            patch("integration.fetcher.bilibili.BilibiliFetcher", return_value=remote),
+            patch("ingestion.interaction.cli.bootstrap.extract_audio"),
+            patch("ingestion.interaction.cli.bootstrap.WhisperTranscriber", return_value=transcriber),
+            patch("ingestion.interaction.cli.bootstrap.create_configured_chat_backend", return_value=backend) as create_backend,
+        ):
+            code, out, _ = self._run(
+                "material", "collect-and-process", *self.remote_args, "--source-key", _VIDEO,
+                "--provider", "tokenhub", "--model", "hy4-flash",
+            )
+        self.assertEqual(code, 0)
+        self.assertIn("采集\n", out)
+        self.assertIn("加工\n", out)
+        self.assertEqual(out.count("成功"), 2)
+        create_backend.assert_called_once_with(
+            project_root=self.root, selection=ChatModelInfo("tokenhub", "hy4-flash"), probe=True,
+        )
+        stored = self.repository.get(self.avatar.id, Platform.BILIBILI, _VIDEO)
+        self.assertEqual(stored.raw_segments[0].text, "原稿")
+        self.assertEqual(stored.optimized_segments[0].text, "加工稿")
 
     def test_logging_correlates_cli_service_and_storage(self) -> None:
         """检查同一命令在工作线程上沿用运行 ID，异常日志过滤远端内容。"""

@@ -40,6 +40,12 @@ python -m ingestion.interaction.cli material show --material-id 1
 python -m ingestion.interaction.cli material process --material-id 1
 ```
 
+也可以用一条命令采集并加工一份资料。默认使用 DeepSeek Flash，可通过 `--provider` 和 `--model` 指定模型。
+
+```powershell
+python -m ingestion.interaction.cli material collect-and-process --avatar-id 1 --platform bilibili --source-key BV1xx411c7mD --provider deepseek --model deepseek-flash
+```
+
 上述命令使用已安装依赖的项目 Python 环境。B 站合集可传 `--collection-key 123` 或 `--collection-key series:123`。需要登录时，通过扫码获得会话并保存到根目录的 `.sessions/bilibili.json`。加工默认使用 `DEEPSEEK_API_KEY`。可通过环境变量或 `.env` 中的 `VALHALLA_LLM_PROVIDER=tokenhub` 切到 TokenHub，并提供 `TOKENHUB_API_KEY`。 [会话文件格式](../integration/README.md#b-站内容拉取)
 
 新仓储将作者登记和资料索引写入 `data/ingestion/`，原始 SRT 和加工 JSON 分别保存在作者及平台对应的 `srt/`、`processed/` 目录。
@@ -95,6 +101,7 @@ material = SubtitleMaterialEntity(
 - `AvatarService` 查询、登记和更新数字人及其平台账号。通过 `list_avatars()` 取得全部 `AvatarInfo`，可直接用查询结果指定后续操作的目标。
 - `MaterialService` 的 `list_remote_materials()` 按数字人和平台列出远端资料，`collect_material()` 与 `batch_collect_material()` 根据选定的 `source_key` 采集原始内容。查询本地资料时返回 `MaterialDetail`，删除资料时移除原始稿与加工稿。
 - `MaterialProcessService` 的 `process_material()` 与 `batch_process_material()` 加工已保存的原始资料。`delete_processed_material()` 与 `batch_delete_processed_material()` 仅移除加工稿。
+- `MaterialCollectAndProcessService` 提供 `collect_and_process_material()` 和 `batch_collect_and_process_material()`。B 站实现先保存原稿，再调用现有字幕加工服务。调用方可通过 `model_selection` 指定模型目录中的组合，省略时使用 DeepSeek Flash。已有原稿时可复用，已有加工稿时可跳过。加工失败后，已保存的原稿可用于重试。 [模型选择说明](../integration/README.md#文本模型)
 
 服务方法是异步契约。单条删除成功时返回 `None`，失败时抛出异常。批量操作按输入顺序逐项返回结果。
 

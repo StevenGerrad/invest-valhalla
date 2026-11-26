@@ -54,19 +54,21 @@ ingestion/
 │   ├── error.py                     # 定义服务操作和冲突异常
 │   ├── material/
 │   │   ├── _support.py              # 资料详情转换和批量删除
+│   │   ├── material_collect_and_process_service.py # 声明采集后加工接口
 │   │   ├── material_service.py      # 声明浏览、采集和删除接口
 │   │   ├── dto/
+│   │   │   ├── material_collect_and_process_service_dto.py # 定义两阶段参数和结果
 │   │   │   └── material_service_dto.py # 定义采集参数、结果和共用的资料详情
 │   │   └── impl/
 │   │       └── bilibili_subtitle/
-│   │           └── bilibili_subtitle_material_service_impl.py # 编排 B 站浏览、下载和转录
+│   │           └── bilibili_subtitle_material_service_impl.py # 编排 B 站浏览、下载、转录及采集后加工
 │   └── material_process/
 │       ├── material_process_service.py     # 声明加工和删除加工稿的接口
 │       ├── dto/
 │       │   └── material_process_service_dto.py # 定义加工参数和执行结果
 │       └── impl/
 │           └── subtitle/
-│               ├── subtitle_material_process_service_impl.py # 保存、复用和清除字幕加工稿
+│               ├── subtitle_material_process_service_impl.py # 加载模型并保存、复用和清除加工稿
 │               └── subtitle_processor.py   # 分批调用模型并校验、合并字幕
 ├── storage/
 │   ├── __init__.py                  # 导出两个 Repository 接口
