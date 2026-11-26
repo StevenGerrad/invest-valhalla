@@ -2,10 +2,11 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Self
 
 from integration.llm import ChatModelInfo
 
-from ....entity import MaterialIndex
+from ....entity import MaterialIndex, SubtitleMaterialEntity
 from ....common.dto.material_dto import MaterialDetail
 from ....common.dto.subtitle.subtitle_dto import ProcessedSubtitleInfo
 
@@ -40,3 +41,12 @@ class ProcessedMaterialDetail(MaterialDetail):
     content_type: str = field(default="subtitle", init=False)
     #: 已保存的加工字幕及其全文关键词。
     processed_subtitle: ProcessedSubtitleInfo
+
+    @classmethod
+    def from_entity(cls, material: SubtitleMaterialEntity) -> Self:
+        """生成只携带加工稿的资料详情。
+
+        :param material: 服务已确认存在加工稿的字幕资料。
+        :returns: 公共资料信息、加工片段和全文关键词。
+        """
+        return cls._from_entity(material, processed_subtitle=ProcessedSubtitleInfo.from_entity(material))

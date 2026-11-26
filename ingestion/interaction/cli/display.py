@@ -11,8 +11,8 @@ from ...service import (
     MaterialDetail,
     MaterialPage,
     ProcessingResult,
+    RawAndProcessedMaterialDetail,
     ResultStatus,
-    SubtitleMaterialDetail,
     SubtitleSegmentInfo,
 )
 
@@ -100,10 +100,10 @@ def _show_segments(
         print(f"[{segment.start_seconds:.3f}s - {segment.end_seconds:.3f}s] {segment.text}")
 
 
-def show_material(material: MaterialDetail) -> None:
-    """显示资料来源和字幕详情。
+def show_material(material: RawAndProcessedMaterialDetail) -> None:
+    """显示资料来源、两份字幕和加工稿的全文关键词。
 
-    :param material: 服务返回的本地资料详情。
+    :param material: 服务返回的本地资料组合详情。
     """
     print(f"资料 ID：{material.id}")
     print(f"标题：{material.title or '-'}")
@@ -111,9 +111,11 @@ def show_material(material: MaterialDetail) -> None:
     print(f"来源标识：{material.source_key}")
     print(f"来源链接：{material.source_url or '-'}")
     print(f"发布时间：{_format_date(material.published_at)}")
-    if isinstance(material, SubtitleMaterialDetail):
-        _show_segments("原始字幕", material.raw_segments, "暂无原始字幕。")
-        _show_segments("加工稿", material.optimized_segments, "暂无加工稿。")
+    _show_segments("原始字幕", material.raw_subtitle, "暂无原始字幕。")
+    processed = material.processed_subtitle
+    _show_segments("加工稿", processed.segments if processed is not None else (), "暂无加工稿。")
+    if processed is not None and processed.global_keywords:
+        print(f"全文关键词：{'、'.join(processed.global_keywords)}")
 
 
 def show_results(results: Sequence[CollectionResult | ProcessingResult]) -> int:

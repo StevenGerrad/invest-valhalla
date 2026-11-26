@@ -9,18 +9,19 @@ from dataclasses import replace
 from functools import cache
 from time import perf_counter
 
-from integration.llm import ChatBackend, ChatBackendError, ChatModelInfo
-from ingestion.entity import MaterialEntity, MaterialIndex, SubtitleMaterialEntity, SubtitleSegment
+from integration.llm import ChatBackend, ChatBackendError, ChatModelInfo, bind_chat_invoke
+from ingestion.entity import AvatarIndex, MaterialEntity, MaterialIndex, Platform, SubtitleMaterialEntity, SubtitleSegment
+from ingestion.entity.agent import SubtitleProcessAgent
+from ingestion.service._batch import batch_delete, log_batch_results
 from ingestion.service._support import repository_call
-from ingestion.common.dto.material_dto import DeletionResult, MaterialSelectionParam, ProcessingResult
+from ingestion.common.dto.material_dto import DeletionResult, MaterialDetail, MaterialSelectionParam, ProcessingResult
+from ingestion.common.dto.subtitle.subtitle_dto import SubtitleProcessParam
 from ingestion.common.constant.result_status import ResultStatus
 from ingestion.service.error import IngestionError
-from ingestion.service.material._support import batch_delete, log_batch_results, material_detail
 from ingestion.storage import MaterialRepository
 
-from ...dto.material_process_service_dto import BatchProcessMaterialParam, ProcessMaterialParam
+from ...dto.material_process_service_dto import BatchProcessMaterialParam, ProcessedMaterialDetail, ProcessMaterialParam
 from ...material_process_service import MaterialProcessService
-from .subtitle_processor import process_subtitles
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,45 @@ class SubtitleMaterialProcessServiceImpl(MaterialProcessService):
         self._backend = backend
         self._selected_backend = selected_backend
 
+    async def get_processed_material(self, material_index: MaterialIndex) -> ProcessedMaterialDetail | None:
+        """读取一份已保存的加工稿。
+
+        :param material_index: 目标资料的本地索引。
+        :returns: 加工稿详情。没有资料或尚无加工稿时返回 None。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        material_id = material_index.get_material_index()
+        material = await repository_call(self._materials.get_by_id, material_id)
+        logger.debug("查询本地资料 material_id=%d found=%s", material_id, material is not None)
+        if isinstance(material, SubtitleMaterialEntity) and material.optimized_segments:
+            return ProcessedMaterialDetail.from_entity(material)
+        return None
+
+    async def list_processed_materials(
+        self, avatar_index: AvatarIndex, platform: Platform | None = None,
+    ) -> list[ProcessedMaterialDetail]:
+        """列出作者已保存的加工稿。
+
+        :param avatar_index: 作者的本地索引。
+        :param platform: 可选平台。为 None 时列出所有来源。
+        :returns: 仅包含已有加工稿的资料详情。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        started = perf_counter()
+        author_id = avatar_index.get_avatar_index()
+        materials = await repository_call(self._materials.list_by_author, author_id)
+        details = [
+            ProcessedMaterialDetail.from_entity(material) for material in materials
+            if isinstance(material, SubtitleMaterialEntity)
+            and material.optimized_segments
+            and (platform is None or material.platform is platform)
+        ]
+        logger.debug("加工稿列表 author_id=%d platform=%s count=%d elapsed=%.3fs",
+                     author_id, platform, len(details), perf_counter() - started)
+        return details
+
     async def process_material(self, material_index: MaterialIndex, param: ProcessMaterialParam) -> ProcessingResult:
-        """加工一份字幕资料，在全部批次成功后更新实体。
+        """加工一份字幕资料，在整份稿件通过校验后更新实体。
 
         :param material_index: 本地资料索引。
         :param param: 已有加工稿的跳过策略及可选模型。
@@ -69,10 +107,10 @@ class SubtitleMaterialProcessServiceImpl(MaterialProcessService):
         material = await self._require_material(material_index)
         if not isinstance(material, SubtitleMaterialEntity) or not material.raw_segments:
             logger.info("资料无需字幕加工 material_id=%d reason=unsupported_or_empty", material.id)
-            return ProcessingResult(material.id, ResultStatus.NOT_REQUIRED, material_detail(material))
+            return ProcessingResult(material.id, ResultStatus.NOT_REQUIRED, MaterialDetail.for_material(material))
         if skip_existing and material.optimized_segments:
             logger.info("字幕加工跳过 material_id=%d reason=existing_processed", material.id)
-            return ProcessingResult(material.id, ResultStatus.SKIPPED, material_detail(material))
+            return ProcessingResult(material.id, ResultStatus.SKIPPED, MaterialDetail.for_material(material))
 
         logger.info("字幕加工开始 material_id=%d segments=%d", material.id, len(material.raw_segments))
         try:
@@ -92,7 +130,7 @@ class SubtitleMaterialProcessServiceImpl(MaterialProcessService):
         stored = await self._require_material(material_index)
         logger.info("字幕加工完成 material_id=%d sections=%d elapsed=%.3fs",
                     material.id, len(sections), perf_counter() - started)
-        return ProcessingResult(material.id, ResultStatus.SUCCESS, material_detail(stored))
+        return ProcessingResult(material.id, ResultStatus.SUCCESS, MaterialDetail.for_material(stored))
 
     async def batch_process_material(self, param: BatchProcessMaterialParam) -> list[ProcessingResult]:
         """顺序加工多条资料并记录每项结果。
@@ -198,10 +236,16 @@ class SubtitleMaterialProcessServiceImpl(MaterialProcessService):
     def _process(
         self, backend: Callable[[], ChatBackend], material: SubtitleMaterialEntity,
     ) -> tuple[list[SubtitleSegment], tuple[str, ...]]:
-        """在线程中构造模型并加工原始字幕。
+        """在线程中将整份原稿交给字幕 Agent，并转换其输出。
 
         :param backend: 本次加工使用的延迟后端入口。
         :param material: 带有原始字幕的资料。
         :returns: 加工片段和全文关键词。
+        :raises ValueError: 字幕或模型返回不符合加工约束。
+        :raises ChatBackendError: 模型调用失败或响应未完整返回。
         """
-        return process_subtitles(backend(), material)
+        agent = SubtitleProcessAgent(bind_chat_invoke(backend()))
+        result = agent.process(SubtitleProcessParam.from_entity(material))
+        # Agent 使用共享 DTO 交付正文。仓储继续接收领域实体，保留原稿和资料标识。
+        segments = [SubtitleSegment(item.start_seconds, item.end_seconds, item.text) for item in result.segments]
+        return segments, tuple(result.global_keywords)

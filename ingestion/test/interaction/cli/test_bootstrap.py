@@ -20,7 +20,7 @@ from ingestion.storage.impl.local_file.material_repository_impl import MaterialR
 from integration.converter import SubtitleSegment
 from integration.fetcher.bilibili import CollectionKind, VideoInfo, VideoPage
 from integration.fetcher.error import FetchError
-from integration.llm import ChatModelInfo
+from integration.llm import ChatBackendError, ChatErrorKind, ChatModelInfo
 
 _VIDEO = "BV1xx411c7mD"
 _OTHER_VIDEO = "BV1xx411c7mE"
@@ -54,7 +54,7 @@ class BootstrapTest(TestCase):
         transcriber.transcribe.return_value = (SubtitleSegment(0, 2, "原始字幕"),)
         backend = Mock()
         backend.chat.return_value = json.dumps({
-            "sections": [{"heading": "主题", "start_time": 0.0, "end_time": 2.0, "text": "优化字幕"}],
+            "sections": [{"start_id": 1, "end_id": 1, "text": "优化字幕"}],
             "global_keywords": ["示例"],
         })
         with (
@@ -84,9 +84,25 @@ class BootstrapTest(TestCase):
             optimized = self.repository.get_by_id(original.id)
             self.assertEqual(optimized.optimized_segments[0].text, "优化字幕")
             self.assertEqual(optimized.global_keywords, ("示例",))
+            stored_json, = (self.root / "data" / "ingestion").rglob("processed/*.json")
+            payload = json.loads(stored_json.read_text(encoding="utf-8"))
+            self.assertEqual(payload["sections"], [{"start_time": 0, "end_time": 2, "text": "优化字幕"}])
+            self.assertEqual(payload["global_keywords"], ["示例"])
+            code, out, _ = self._run("material", "show", "--material-id", material_id)
+            self.assertEqual(code, 0)
+            self.assertIn("原始字幕\n[0.000s - 2.000s] 原始字幕", out)
+            self.assertIn("加工稿\n[0.000s - 2.000s] 优化字幕", out)
+            self.assertEqual(out.count("全文关键词：示例"), 1)
+            code, out, _ = self._run("material", "list-local", *self.remote_args)
+            self.assertEqual(code, 0)
+            self.assertIn(f"{material_id}\tbilibili\t示例视频", out)
             self.assertEqual(self._run("material", "process", "--material-id", material_id)[0], 0)
             backend.chat.assert_called_once()
 
+            backend.chat.side_effect = ChatBackendError(ChatErrorKind.INCOMPLETE_RESPONSE)
+            self.assertEqual(self._run("material", "process", "--material-id", material_id, "--no-skip-existing")[0], 1)
+            self.assertEqual(self.repository.get_by_id(original.id), optimized)
+            backend.chat.side_effect = None
             backend.chat.return_value = "无效响应"
             self.assertEqual(self._run("material", "process", "--material-id", material_id, "--no-skip-existing")[0], 1)
             self.assertEqual(self.repository.get_by_id(original.id), optimized)
@@ -120,7 +136,7 @@ class BootstrapTest(TestCase):
         transcriber.transcribe.return_value = (SubtitleSegment(0, 2, "原稿"),)
         backend = Mock()
         backend.chat.return_value = json.dumps({
-            "sections": [{"heading": "主题", "start_time": 0.0, "end_time": 2.0, "text": "加工稿"}],
+            "sections": [{"start_id": 1, "end_id": 1, "text": "加工稿"}],
         })
         with (
             patch("integration.fetcher.bilibili.BilibiliFetcher", return_value=remote),

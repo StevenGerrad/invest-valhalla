@@ -20,7 +20,8 @@ from integration.fetcher.address import parse_bilibili_collection_key, parse_bil
 from integration.fetcher.error import FetchError
 from integration.llm import ChatModelInfo, resolve_chat_model
 
-from ingestion.entity import AvatarIndex, MaterialIndex, Platform, SubtitleMaterialEntity, SubtitleSegment
+from ingestion.entity import AvatarIndex, MaterialEntity, MaterialIndex, Platform, SubtitleMaterialEntity, SubtitleSegment
+from ingestion.service._batch import batch_delete, log_batch_results
 from ingestion.service._support import repository_call
 from ingestion.common.dto.material_dto import (
     BatchCollectMaterialParam, CollectMaterialParam, CollectionResult, DeletionResult,
@@ -34,11 +35,11 @@ from ingestion.service.material_process.dto.material_process_service_dto import 
 from ingestion.service.material_process.material_process_service import MaterialProcessService
 from ingestion.storage import AvatarRepository, MaterialRepository
 
-from ..._support import batch_delete, log_batch_results, material_detail
 from ...dto.material_collect_and_process_service_dto import (
     BatchCollectAndProcessMaterialParam, CollectAndProcessMaterialParam, CollectAndProcessResult,
+    RawAndProcessedMaterialDetail,
 )
-from ...dto.material_service_dto import ListRemoteMaterialsParam, MaterialListItem, MaterialPage
+from ...dto.material_service_dto import ListRemoteMaterialsParam, MaterialListItem, MaterialPage, RawMaterialDetail
 from ...material_collect_and_process_service import MaterialCollectAndProcessService
 from ...material_service import MaterialService
 
@@ -126,13 +127,8 @@ class BilibiliSubtitleMaterialServiceImpl(MaterialService, MaterialCollectAndPro
         :returns: 符合条件的资料列表。
         :raises IngestionError: 无法读取本地资料。
         """
-        started = perf_counter()
-        author_id = avatar_index.get_avatar_index()
-        materials = await repository_call(self._materials.list_by_author, author_id)
-        details = [material_detail(material) for material in materials if platform is None or material.platform is platform]
-        logger.debug("本地资料列表 author_id=%d platform=%s count=%d elapsed=%.3fs",
-                     author_id, platform, len(details), perf_counter() - started)
-        return details
+        materials = await self._list_saved_materials(avatar_index, platform)
+        return [MaterialDetail.for_material(material) for material in materials]
 
     async def get_material(self, material_index: MaterialIndex) -> MaterialDetail | None:
         """读取一份资料的详情，包括原稿和可用的加工稿。
@@ -141,10 +137,89 @@ class BilibiliSubtitleMaterialServiceImpl(MaterialService, MaterialCollectAndPro
         :returns: 资料详情。找不到时为 None。
         :raises IngestionError: 无法读取本地资料。
         """
+        material = await self._read_saved_material(material_index)
+        return MaterialDetail.for_material(material) if material is not None else None
+
+    async def get_raw_material(self, material_index: MaterialIndex) -> RawMaterialDetail | None:
+        """读取一份已保存的原稿。
+
+        :param material_index: 目标资料的本地索引。
+        :returns: 原稿详情。找不到时返回 None，已保存的空字幕返回空片段列表。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        material = await self._read_saved_material(material_index)
+        return RawMaterialDetail.from_entity(material) if isinstance(material, SubtitleMaterialEntity) else None
+
+    async def list_raw_materials(
+        self, avatar_index: AvatarIndex, platform: Platform | None = None,
+    ) -> list[RawMaterialDetail]:
+        """列出作者已保存的原稿。
+
+        :param avatar_index: 作者的本地索引。
+        :param platform: 可选平台。为 None 时列出所有来源。
+        :returns: 原稿详情列表，包含已保存的空字幕。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        materials = await self._list_saved_materials(avatar_index, platform)
+        return [RawMaterialDetail.from_entity(material) for material in materials if isinstance(material, SubtitleMaterialEntity)]
+
+    async def get_raw_and_processed_material(
+        self, material_index: MaterialIndex,
+    ) -> RawAndProcessedMaterialDetail | None:
+        """从同一份资料读取原稿及已保存的加工稿。
+
+        :param material_index: 目标资料的本地索引。
+        :returns: 组合详情。资料不存在时返回 None，尚无加工稿时对应字段为 None。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        material = await self._read_saved_material(material_index)
+        return RawAndProcessedMaterialDetail.from_entity(material) if isinstance(material, SubtitleMaterialEntity) else None
+
+    async def list_raw_and_processed_material(
+        self, avatar_index: AvatarIndex, platform: Platform | None = None,
+    ) -> list[RawAndProcessedMaterialDetail]:
+        """列出作者的原稿及各自可用的加工稿。
+
+        :param avatar_index: 作者的本地索引。
+        :param platform: 可选平台。为 None 时列出所有来源。
+        :returns: 组合详情列表，包含只有原稿的资料。
+        :raises IngestionError: 无法读取本地资料。
+        """
+        materials = await self._list_saved_materials(avatar_index, platform)
+        return [
+            RawAndProcessedMaterialDetail.from_entity(material)
+            for material in materials if isinstance(material, SubtitleMaterialEntity)
+        ]
+
+    async def _read_saved_material(self, material_index: MaterialIndex) -> MaterialEntity | None:
+        """为本服务的单条查询读取同一份本地资料。
+
+        :param material_index: 待查询资料的本地索引。
+        :returns: 完整资料。查询不到时返回 None。
+        :raises IngestionError: 资料无法读取。
+        """
         material_id = material_index.get_material_index()
         material = await repository_call(self._materials.get_by_id, material_id)
         logger.debug("查询本地资料 material_id=%d found=%s", material_id, material is not None)
-        return material_detail(material) if material is not None else None
+        return material
+
+    async def _list_saved_materials(
+        self, avatar_index: AvatarIndex, platform: Platform | None,
+    ) -> list[MaterialEntity]:
+        """为本服务的列表查询读取作者资料并应用平台筛选。
+
+        :param avatar_index: 作者的本地索引。
+        :param platform: 目标平台。为 None 时保留所有平台。
+        :returns: 符合平台条件的完整资料，沿用仓储顺序。
+        :raises IngestionError: 资料无法读取。
+        """
+        started = perf_counter()
+        author_id = avatar_index.get_avatar_index()
+        materials = await repository_call(self._materials.list_by_author, author_id)
+        matching = [material for material in materials if platform is None or material.platform is platform]
+        logger.debug("本地资料列表 author_id=%d platform=%s count=%d elapsed=%.3fs",
+                     author_id, platform, len(matching), perf_counter() - started)
+        return matching
 
     async def collect_material(
         self, avatar_index: AvatarIndex, platform: Platform, param: CollectMaterialParam,
@@ -340,7 +415,7 @@ class BilibiliSubtitleMaterialServiceImpl(MaterialService, MaterialCollectAndPro
         # 已有字幕实体代表完成过转录。静音视频的空字幕同样可以复用。
         if isinstance(previous, SubtitleMaterialEntity) and param.skip_existing:
             logger.info("采集跳过 source_key=%s material_id=%d reason=existing_raw", key, previous.id)
-            return CollectionResult(key, ResultStatus.SKIPPED, material_detail(previous))
+            return CollectionResult(key, ResultStatus.SKIPPED, MaterialDetail.for_material(previous))
 
         stage = "load_session"
         try:
@@ -387,7 +462,7 @@ class BilibiliSubtitleMaterialServiceImpl(MaterialService, MaterialCollectAndPro
         if unchanged and previous == replace(material, updated_at=previous.updated_at, raw_segments=previous.raw_segments):
             logger.info("重采结果未变 source_key=%s material_id=%d elapsed=%.3fs",
                         key, previous.id, perf_counter() - started)
-            return CollectionResult(key, ResultStatus.SUCCESS, material_detail(previous))
+            return CollectionResult(key, ResultStatus.SUCCESS, MaterialDetail.for_material(previous))
         await repository_call(
             self._materials.save, material, expected_updated_at=previous.updated_at if previous is not None else None,
         )
@@ -396,7 +471,7 @@ class BilibiliSubtitleMaterialServiceImpl(MaterialService, MaterialCollectAndPro
             raise IngestionError(f"保存后的资料 {material.id} 已不存在")
         logger.info("采集完成 source_key=%s material_id=%d segments=%d elapsed=%.3fs",
                     key, stored.id, len(segments), perf_counter() - started)
-        return CollectionResult(key, ResultStatus.SUCCESS, material_detail(stored))
+        return CollectionResult(key, ResultStatus.SUCCESS, MaterialDetail.for_material(stored))
 
 
 def _resolve_processing_model(selection: ChatModelInfo | None) -> ChatModelInfo:

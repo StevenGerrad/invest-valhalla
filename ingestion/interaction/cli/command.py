@@ -161,13 +161,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     local = material_commands.add_parser("list-local", help="列出本地资料")
     _add_avatar_options(local, platform_required=False)
-    local.set_defaults(handler=_list_local_materials)
+    local.set_defaults(service_name="MaterialCollectAndProcessService", handler=_list_local_materials)
 
     show = material_commands.add_parser("show", help="查看本地资料详情")
     show.add_argument(
         "--material-id", type=_non_negative_int, action=_StoreOnce, required=True, help="本地资料 ID"
     )
-    show.set_defaults(handler=_get_material)
+    show.set_defaults(service_name="MaterialCollectAndProcessService", handler=_get_material)
 
     collect = material_commands.add_parser("collect", help="采集一份原始资料")
     _add_avatar_options(collect)
@@ -235,26 +235,26 @@ async def _list_remote_materials(args: argparse.Namespace, service: MaterialServ
     return 0
 
 
-async def _list_local_materials(args: argparse.Namespace, service: MaterialService) -> int:
+async def _list_local_materials(args: argparse.Namespace, service: MaterialCollectAndProcessService) -> int:
     """按博主及可选平台显示已有本地资料。
 
     :param args: 博主索引和可选平台。
-    :param service: 注入的资料服务。
+    :param service: 提供原稿和加工稿组合查询的服务。
     :returns: 查询完成时返回 0。
     """
-    materials = await service.list_local_materials(_AvatarRef(args.avatar_id), args.platform)
+    materials = await service.list_raw_and_processed_material(_AvatarRef(args.avatar_id), args.platform)
     display.show_local_materials(materials)
     return 0
 
 
-async def _get_material(args: argparse.Namespace, service: MaterialService) -> int:
+async def _get_material(args: argparse.Namespace, service: MaterialCollectAndProcessService) -> int:
     """显示资料详情或报告指定资料不存在。
 
     :param args: 包含本地资料 ID 的命令参数。
-    :param service: 注入的资料服务。
+    :param service: 提供原稿和加工稿组合查询的服务。
     :returns: 找到资料时返回 0，否则返回 1。
     """
-    material = await service.get_material(_MaterialRef(args.material_id))
+    material = await service.get_raw_and_processed_material(_MaterialRef(args.material_id))
     if material is None:
         logger.warning("资料详情不存在 material_id=%d", args.material_id)
         print(f"找不到资料 ID {args.material_id}。", file=sys.stderr)

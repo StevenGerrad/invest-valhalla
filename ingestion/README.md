@@ -18,8 +18,8 @@ import asyncio
 from pathlib import Path
 
 from ingestion.entity import Platform
-from ingestion.pipeline import AvatarPlatformParam, CreateAvatarParam
-from ingestion.pipeline.avatar.impl.avatar_service_impl import AvatarServiceImpl
+from ingestion.service import AvatarPlatformParam, CreateAvatarParam
+from ingestion.service.avatar.impl.avatar_service_impl import AvatarServiceImpl
 from ingestion.storage.impl.local_file.avatar_repository_impl import AvatarRepositoryImpl
 from ingestion.storage.impl.local_file.material_repository_impl import MaterialRepositoryImpl
 
@@ -36,6 +36,7 @@ print(avatar.id)
 python -m ingestion.interaction.cli avatar list
 python -m ingestion.interaction.cli material list-remote --avatar-id 1 --platform bilibili --page 1
 python -m ingestion.interaction.cli material collect --avatar-id 1 --platform bilibili --source-key BV1xx411c7mD
+python -m ingestion.interaction.cli material list-local --avatar-id 1
 python -m ingestion.interaction.cli material show --material-id 1
 python -m ingestion.interaction.cli material process --material-id 1
 ```
@@ -49,6 +50,8 @@ python -m ingestion.interaction.cli material collect-and-process --avatar-id 1 -
 上述命令使用已安装依赖的项目 Python 环境。B 站合集可传 `--collection-key 123` 或 `--collection-key series:123`。需要登录时，通过扫码获得会话并保存到根目录的 `.sessions/bilibili.json`。加工默认使用 `DEEPSEEK_API_KEY`。可通过环境变量或 `.env` 中的 `VALHALLA_LLM_PROVIDER=tokenhub` 切到 TokenHub，并提供 `TOKENHUB_API_KEY`。 [会话文件格式](../integration/README.md#b-站内容拉取)
 
 新仓储将作者登记和资料索引写入 `data/ingestion/`，原始 SRT 和加工 JSON 分别保存在作者及平台对应的 `srt/`、`processed/` 目录。
+
+`material show` 读取已保存的原稿和加工稿，在加工稿末尾显示全文关键词。`material process` 将整份原稿提交给所选模型。新加工段保存起止时间和正文，全文关键词保存在 `global_keywords`。
 
 新 CLI 的日志写入 `logs/ingestion/`。用日志行中的 `run_id` 串联同一次采集、加工或查询。 [日志排查说明](../core/README.md)
 
@@ -76,7 +79,7 @@ material = SubtitleMaterialEntity(
     source_url="https://www.bilibili.com/video/BV1xx411c7mD/",
     raw_segments=[SubtitleSegment(start_seconds=0, end_seconds=2, text="第一段转录。")],
     optimized_segments=[
-        SubtitleSegment(start_seconds=0, end_seconds=2, text="第一段。", heading="开场")
+        SubtitleSegment(start_seconds=0, end_seconds=2, text="第一段。")
     ],
 )
 ```

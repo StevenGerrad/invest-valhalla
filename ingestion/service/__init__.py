@@ -16,6 +16,7 @@ from ..common.dto.material_dto import (
     MaterialDetail,
     MaterialSelectionParam,
     ProcessingResult,
+    SubtitleMaterialDetail,
 )
 from ..common.dto.subtitle.subtitle_dto import ProcessedSubtitleInfo, RawSubtitle, SubtitleSegmentInfo
 from ..common.constant.result_status import ResultStatus
@@ -26,9 +27,7 @@ from .material.dto.material_collect_and_process_service_dto import (
     CollectAndProcessResult,
     RawAndProcessedMaterialDetail,
 )
-from .material.dto.material_service_dto import (
-    ListRemoteMaterialsParam, MaterialListItem, MaterialPage, RawMaterialDetail, SubtitleMaterialDetail,
-)
+from .material.dto.material_service_dto import ListRemoteMaterialsParam, MaterialListItem, MaterialPage, RawMaterialDetail
 from .material.material_collect_and_process_service import MaterialCollectAndProcessService
 from .material.material_service import MaterialService
 from .material_process.dto.material_process_service_dto import (

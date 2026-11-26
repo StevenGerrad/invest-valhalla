@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Self
 
 from ....common.dto.material_dto import MaterialDetail
-from ....common.dto.subtitle.subtitle_dto import ProcessedSubtitleSegmentInfo, RawSubtitle
+from ....common.dto.subtitle.subtitle_dto import RawSubtitle, SubtitleSegmentInfo
+from ....entity import SubtitleMaterialEntity
 
 
 @dataclass(frozen=True)
@@ -52,19 +54,11 @@ class RawMaterialDetail(MaterialDetail):
     #: 按时间顺序排列的原始片段。已采集但没有识别出语音时为空列表。
     raw_subtitle: RawSubtitle
 
+    @classmethod
+    def from_entity(cls, material: SubtitleMaterialEntity) -> Self:
+        """生成资料的来源信息和原始字幕详情。
 
-@dataclass(frozen=True)
-class LegacySubtitleSegmentInfo(ProcessedSubtitleSegmentInfo):
-    """为既有资料详情保留段落标题和关键词，以兼容现有查询。"""
-
-
-@dataclass(frozen=True, kw_only=True)
-class SubtitleMaterialDetail(MaterialDetail):
-    """供现有详情查询展示原始字幕和加工稿。"""
-
-    #: 字幕资料的固定类型标识。
-    content_type: str = field(default="subtitle", init=False)
-    #: 原始字幕片段，按字幕顺序排列。
-    raw_segments: list[LegacySubtitleSegmentInfo]
-    #: 加工后的字幕片段。没有加工稿时为空列表。
-    optimized_segments: list[LegacySubtitleSegmentInfo] = field(default_factory=list)
+        :param material: 已保存的字幕资料，可包含空原稿。
+        :returns: 包含公共资料信息和原稿片段的详情。
+        """
+        return cls._from_entity(material, raw_subtitle=SubtitleSegmentInfo.from_segments(material.raw_segments))

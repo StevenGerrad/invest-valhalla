@@ -1,11 +1,13 @@
 """定义多个采集服务共同使用的资料信息、操作参数和结果。"""
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any, Self
 
-from ...entity import MaterialIndex, Platform
+from ...entity import MaterialEntity, MaterialIndex, Platform, SubtitleMaterialEntity
 from ..constant.result_status import ResultStatus
+from .subtitle.subtitle_dto import ProcessedSubtitleSegmentInfo
 
 
 @dataclass(frozen=True)
@@ -61,12 +63,69 @@ class MaterialDetail(MaterialIndex):
     #: 平台公布的发布时间，带时区。未知时为 None。
     published_at: datetime | None = None
 
+    @staticmethod
+    def for_material(material: MaterialEntity) -> "MaterialDetail":
+        """生成既有查询和操作结果使用的通用详情。
+
+        :param material: 已保存的完整资料实体。
+        :returns: 字幕资料的详情携带两份稿件，其他类型的详情包含公共资料信息。
+        """
+        if isinstance(material, SubtitleMaterialEntity):
+            return SubtitleMaterialDetail.from_entity(material)
+        return MaterialDetail._from_entity(material, content_type=material.content_type)
+
+    @classmethod
+    def _from_entity(cls, material: MaterialEntity, **content_fields: Any) -> Self:
+        """将公共资料字段与目标 DTO 的内容字段合并。
+
+        :param material: 提供公共字段的资料实体。
+        :param content_fields: 目标详情类型额外接收的构造参数。
+        :returns: 已填充公共字段及内容字段的目标详情。
+        """
+        return cls(
+            id=material.id,
+            created_at=material.created_at,
+            updated_at=material.updated_at,
+            author_id=material.author_id,
+            platform=material.platform,
+            source_key=material.source_key,
+            title=material.title,
+            source_url=material.source_url,
+            published_at=material.published_at,
+            **content_fields,
+        )
+
     def get_material_index(self) -> int:
         """取得后续查询、加工或删除所需的资料标识。
 
         :returns: 资料的本地 ID。
         """
         return self.id
+
+
+@dataclass(frozen=True, kw_only=True)
+class SubtitleMaterialDetail(MaterialDetail):
+    """为现有资料详情和操作结果提供原稿和加工稿。"""
+
+    #: 字幕资料的固定类型标识。
+    content_type: str = field(default="subtitle", init=False)
+    #: 原始字幕片段，按字幕顺序排列。
+    raw_segments: list[ProcessedSubtitleSegmentInfo]
+    #: 加工后的字幕片段。没有加工稿时为空列表。
+    optimized_segments: list[ProcessedSubtitleSegmentInfo] = field(default_factory=list)
+
+    @classmethod
+    def from_entity(cls, material: SubtitleMaterialEntity) -> Self:
+        """复用两份稿件并保留历史加工段的附加字段。
+
+        :param material: 已保存的完整字幕资料。
+        :returns: 现有查询和操作结果使用的字幕详情。
+        """
+        return cls._from_entity(
+            material,
+            raw_segments=ProcessedSubtitleSegmentInfo.from_segments(material.raw_segments),
+            optimized_segments=ProcessedSubtitleSegmentInfo.from_segments(material.optimized_segments),
+        )
 
 
 @dataclass(frozen=True)

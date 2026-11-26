@@ -55,6 +55,24 @@ class ChatBackend(Protocol):
         ...
 
 
+def bind_chat_invoke(backend: ChatBackend) -> ChatInvoke:
+    """将已配置的模型后端适配为接收请求 DTO 的单轮调用。
+
+    :param backend: 负责发送消息并校验响应是否完整的文本模型后端。
+    :returns: 绑定同一后端的模型调用。由后端报告调用失败。
+    """
+    def invoke(request: ChatRequest) -> ChatResponse:
+        """提交一次非流式请求并包装模型正文。
+
+        :param request: 本轮模型接收的系统消息和用户消息。
+        :returns: 包含完整正文的响应。
+        :raises ChatBackendError: 请求失败或未得到完整正文。
+        """
+        return ChatResponse(backend.chat(request.system, request.user))
+
+    return invoke
+
+
 class ChatErrorKind(StrEnum):
     """提供供调用方判断的稳定错误类别。"""
 

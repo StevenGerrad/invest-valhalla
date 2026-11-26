@@ -2,6 +2,7 @@
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Self
 
 from integration.llm import ChatModelInfo
 
@@ -12,7 +13,8 @@ from ....common.dto.material_dto import (
     MaterialDetail,
     ProcessingResult,
 )
-from ....common.dto.subtitle.subtitle_dto import ProcessedSubtitleInfo, RawSubtitle
+from ....common.dto.subtitle.subtitle_dto import ProcessedSubtitleInfo, RawSubtitle, SubtitleSegmentInfo
+from ....entity import SubtitleMaterialEntity
 
 
 @dataclass(frozen=True, init=False)
@@ -65,6 +67,19 @@ class RawAndProcessedMaterialDetail(MaterialDetail):
     raw_subtitle: RawSubtitle
     #: 已保存的加工字幕及其全文关键词。尚无加工稿时为 None。
     processed_subtitle: ProcessedSubtitleInfo | None = None
+
+    @classmethod
+    def from_entity(cls, material: SubtitleMaterialEntity) -> Self:
+        """从同一份实体生成原稿和加工稿的组合详情。
+
+        :param material: 已保存的字幕资料。
+        :returns: 公共资料信息、原稿和可用的加工稿。尚无加工稿时对应字段为 None。
+        """
+        return cls._from_entity(
+            material,
+            raw_subtitle=SubtitleSegmentInfo.from_segments(material.raw_segments),
+            processed_subtitle=ProcessedSubtitleInfo.from_entity(material) if material.optimized_segments else None,
+        )
 
 
 @dataclass(frozen=True)

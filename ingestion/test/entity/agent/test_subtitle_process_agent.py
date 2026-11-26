@@ -7,71 +7,81 @@ from unittest.mock import Mock
 from integration.llm import ChatBackendError, ChatErrorKind, ChatRequest, ChatResponse
 from ingestion.common.dto.subtitle.subtitle_dto import (
     ProcessedSubtitleInfo,
-    ProcessedSubtitleSegmentInfo,
     SubtitleProcessParam,
     SubtitleSegmentInfo,
 )
 from ingestion.entity.agent import SubtitleProcessAgent
 
 
-def _response(start: float, end: float, global_keywords: list[str]) -> ChatResponse:
-    """模拟模型把一批原稿合并为一个带语义信息的段落。
+def _response(*ranges: tuple[int, int]) -> ChatResponse:
+    """模拟模型根据原始编号组织整份字幕的话题段。
 
-    :param start: 加工段落的开始时间，单位为秒。
-    :param end: 加工段落的结束时间，单位为秒。
-    :param global_keywords: 模型为本批返回的关键词。
+    :param ranges: 各段覆盖的原始片段编号范围，两端均包含。
     :returns: 可用于测试的模型响应 DTO。
     """
     return ChatResponse(json.dumps({
         "sections": [{
-            "start_time": start, "end_time": end, "heading": "市场观察",
-            "text": "  保留正文。  ", "keywords": [" 市场 ", ""],
-        }],
-        "global_keywords": global_keywords,
+            "start_id": start, "end_id": end, "text": "  保留正文。  ",
+        } for start, end in ranges],
+        "global_keywords": ["行业", "市场", " 市场 ", "政策"],
     }))
 
 
 class SubtitleProcessAgentTest(TestCase):
-    """验证数据契约、时间轴和模型失败处理。"""
+    """验证整稿请求、原稿片段覆盖和模型失败处理。"""
 
-    def test_process_batches_and_preserves_section_metadata(self) -> None:
-        """按 20 加 1 分批发送，保留段落标题、关键词及原媒体时间。"""
-        invoke = Mock(side_effect=[_response(0, 20, ["行业", "市场"]), _response(20, 21, [" 市场 ", "政策"])])
+    def test_processes_full_transcript_and_merges_across_old_boundary(self) -> None:
+        """一次提交所有原稿，允许模型合并跨过旧分界的同一话题。"""
+        invoke = Mock(return_value=_response((1, 17), (18, 21)))
         original = [SubtitleSegmentInfo(index, index + 1, f"原稿 {index}") for index in range(21)]
         result = SubtitleProcessAgent(invoke).process(SubtitleProcessParam("示例视频", original))
 
-        requests = [call.args[0] for call in invoke.call_args_list]
-        for request in requests:
-            self.assertIsInstance(request, ChatRequest)
-            self.assertIn("按话题分段", request.system)
-        batches = [json.loads(request.user) for request in requests]
-        self.assertEqual([batch["title"] for batch in batches], ["示例视频", "示例视频"])
+        invoke.assert_called_once()
+        request = invoke.call_args.args[0]
+        self.assertIsInstance(request, ChatRequest)
+        self.assertIn("通读整份", request.system)
+        self.assertIn("不要概括", request.system)
+        self.assertNotIn('"heading"', request.system)
+        self.assertNotIn('"keywords"', request.system)
         self.assertEqual(
-            [batch["segments"] for batch in batches],
-            [[{"start": i, "end": i + 1, "text": f"原稿 {i}"} for i in range(20)],
-             [{"start": 20, "end": 21, "text": "原稿 20"}]],
+            json.loads(request.user),
+            {"title": "示例视频", "segments": [
+                {"id": i + 1, "start": i, "end": i + 1, "text": f"原稿 {i}"} for i in range(21)
+            ]},
         )
         self.assertEqual(result, ProcessedSubtitleInfo([
-            ProcessedSubtitleSegmentInfo(0.0, 20.0, "保留正文。", "市场观察", ("市场",)),
-            ProcessedSubtitleSegmentInfo(20.0, 21.0, "保留正文。", "市场观察", ("市场",)),
+            SubtitleSegmentInfo(0, 17, "保留正文。"),
+            SubtitleSegmentInfo(17, 21, "保留正文。"),
         ], ["行业", "市场", "政策"]))
 
-    def test_retries_invalid_responses(self) -> None:
-        """依次重试无效 JSON 和超出批次的时间，第三次交付结果。"""
-        invoke = Mock(side_effect=[ChatResponse("非 JSON"), _response(2, 8, []), _response(2, 3, [])])
-        param = SubtitleProcessParam(None, [SubtitleSegmentInfo(2, 3, "原稿")])
+    def test_uses_latest_source_end_for_overlapping_segments(self) -> None:
+        """按原稿恢复时间，覆盖范围内较早开始的片段也可能最后结束。"""
+        invoke = Mock(return_value=_response((1, 2)))
+        param = SubtitleProcessParam(None, [SubtitleSegmentInfo(2, 8, "甲"), SubtitleSegmentInfo(3, 5, "乙")])
         result = SubtitleProcessAgent(invoke).process(param)
-        self.assertEqual(invoke.call_count, 3)
-        self.assertTrue(all(call == invoke.call_args for call in invoke.call_args_list))
-        self.assertEqual(result.segments[0].end_seconds, 3)
+        self.assertEqual((result.segments[0].start_seconds, result.segments[0].end_seconds), (2, 8))
 
-    def test_stops_after_three_invalid_responses(self) -> None:
-        """第二批持续失败时报告错误，避免交付第一批的部分结果。"""
-        invoke = Mock(side_effect=[_response(0, 20, []), *([ChatResponse("{}")] * 3)])
-        param = SubtitleProcessParam(None, [SubtitleSegmentInfo(i, i + 1, "原稿") for i in range(21)])
-        with self.assertRaisesRegex(ValueError, "字幕格式或时间范围无效"):
+    def test_rejects_incomplete_or_overlapping_source_ranges(self) -> None:
+        """拒绝漏开头、中间跳号、重复、越界、反向、错序或缺尾部的结果。"""
+        param = SubtitleProcessParam(None, [SubtitleSegmentInfo(i, i + 1, "原稿") for i in range(4)])
+        cases = (
+            ((2, 4),), ((1, 2), (4, 4)), ((1, 2), (2, 4)), ((1, 5),),
+            ((1, 0),), ((3, 4), (1, 2)), ((1, 3),), ((True, 4),),
+        )
+        for ranges in cases:
+            with self.subTest(ranges=ranges):
+                invoke = Mock(return_value=_response(*ranges))
+                with self.assertRaisesRegex(ValueError, "原稿"):
+                    SubtitleProcessAgent(invoke).process(param)
+                invoke.assert_called_once()
+
+    def test_invalid_json_fails_without_another_model_request(self) -> None:
+        """响应格式无效时直接报告失败，避免重复发送整份原稿。"""
+        invoke = Mock(return_value=ChatResponse('{"sections":['))
+        param = SubtitleProcessParam(None, [SubtitleSegmentInfo(0, 1, "原稿")])
+        with self.assertRaises(json.JSONDecodeError):
             SubtitleProcessAgent(invoke).process(param)
-        self.assertEqual(invoke.call_count, 4)
+        invoke.assert_called_once()
 
     def test_propagates_model_call_error(self) -> None:
         """将模型调用异常原样交回调用方，避免将其当作响应格式错误。"""
@@ -83,7 +93,7 @@ class SubtitleProcessAgentTest(TestCase):
         invoke.assert_called_once()
 
     def test_empty_and_invalid_input_do_not_call_model(self) -> None:
-        """空原稿返回空结果，非法时间在提交任何批次之前报错。"""
+        """空原稿返回空结果，非法时间在提交整稿之前报错。"""
         invoke = Mock()
         agent = SubtitleProcessAgent(invoke)
         self.assertEqual(agent.process(SubtitleProcessParam(None, [])), ProcessedSubtitleInfo([], []))

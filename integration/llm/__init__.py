@@ -2,7 +2,7 @@
 
 from .catalog import ChatModelCatalog, ChatModelInfo, list_chat_models, resolve_chat_model
 from .configured import create_configured_chat_backend
-from .contracts import ChatBackend, ChatBackendError, ChatErrorKind, ChatInvoke, ChatRequest, ChatResponse
+from .contracts import ChatBackend, ChatBackendError, ChatErrorKind, ChatInvoke, ChatRequest, ChatResponse, bind_chat_invoke
 
 __all__ = [
     "ChatBackend",
@@ -13,6 +13,7 @@ __all__ = [
     "ChatModelInfo",
     "ChatRequest",
     "ChatResponse",
+    "bind_chat_invoke",
     "create_chat_backend",
     "create_configured_chat_backend",
     "list_chat_models",

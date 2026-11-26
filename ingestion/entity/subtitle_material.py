@@ -16,9 +16,9 @@ class SubtitleSegment:
     end_seconds: float
     #: 片段的正文，保留文本内的换行。
     text: str
-    #: Agent 可为优化片段附带的标题。缺省表示没有标题。
+    #: 历史加工稿附带的段落标题。缺省表示没有标题。
     heading: str | None = None
-    #: Agent 可为优化片段附带的关键词。没有关键词时为空元组。
+    #: 历史加工稿附带的段落关键词。没有关键词时为空元组。
     keywords: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:

@@ -61,24 +61,39 @@ def processed_json(material: SubtitleMaterialEntity) -> dict:
     return {
         "bvid": material.source_key,
         "title": material.title or "",
-        "sections": [
-            {"heading": item.heading, "start_time": item.start_seconds, "end_time": item.end_seconds,
-             "text": item.text, "keywords": list(item.keywords)}
-            for item in material.optimized_segments
-        ],
+        "sections": [_section_json(item) for item in material.optimized_segments],
         "global_keywords": list(material.global_keywords),
     }
+
+
+def _section_json(segment: SubtitleSegment) -> dict[str, float | str | list[str]]:
+    """序列化加工片段，同时保留已有的历史段落信息。
+
+    :param segment: 待写入的加工片段。
+    :returns: 包含起止时间、正文及已有历史字段的 JSON 对象。
+    """
+    section: dict[str, float | str | list[str]] = {
+        "start_time": segment.start_seconds,
+        "end_time": segment.end_seconds,
+        "text": segment.text,
+    }
+    # 新加工段只有时间与正文。已经存在的历史标题和关键词仍可随实体写回。
+    if segment.heading is not None:
+        section["heading"] = segment.heading
+    if segment.keywords:
+        section["keywords"] = list(segment.keywords)
+    return section
 
 
 def read_processed(data: dict) -> tuple[list[SubtitleSegment], tuple[str, ...]]:
     """解析本地加工稿及全文关键词。
 
-    :param data: 包含 sections 和可选 global_keywords 的 JSON 对象。
+    :param data: 包含 sections 和可选 global_keywords 的 JSON 对象。段落标题和关键词可省略。
     :returns: 还原的加工字幕和全文关键词。
     """
     sections = [
         SubtitleSegment(
-            item["start_time"], item["end_time"], item["text"], item["heading"], tuple(item.get("keywords", ())),
+            item["start_time"], item["end_time"], item["text"], item.get("heading"), tuple(item.get("keywords", ())),
         )
         for item in data["sections"]
     ]

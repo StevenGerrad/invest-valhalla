@@ -1,45 +1,14 @@
-"""为采集和加工服务提供资料详情转换及批量删除。"""
+"""复用材料服务的逐项删除和批量结果日志。"""
 
 import logging
 from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable
 from time import perf_counter
 
-from ...entity import MaterialEntity, MaterialIndex, SubtitleMaterialEntity, SubtitleSegment
-from ...common.constant.result_status import ResultStatus
-from ...common.dto.material_dto import DeletionResult, MaterialDetail
-from ..error import IngestionError
-from .dto.material_service_dto import LegacySubtitleSegmentInfo, SubtitleMaterialDetail
-
-
-def material_detail(material: MaterialEntity) -> MaterialDetail:
-    """将域内实体和字幕片段转换为独立的交互层 DTO。
-
-    :param material: 需要展示的完整资料。
-    :returns: 对应资料类型的详情。
-    """
-    fields = dict(
-        id=material.id, created_at=material.created_at, updated_at=material.updated_at,
-        author_id=material.author_id, platform=material.platform, source_key=material.source_key,
-        title=material.title, source_url=material.source_url, published_at=material.published_at,
-    )
-    if isinstance(material, SubtitleMaterialEntity):
-        return SubtitleMaterialDetail(
-            **fields, raw_segments=list(map(_segment_info, material.raw_segments)),
-            optimized_segments=list(map(_segment_info, material.optimized_segments)),
-        )
-    return MaterialDetail(**fields, content_type=material.content_type)
-
-
-def _segment_info(segment: SubtitleSegment) -> LegacySubtitleSegmentInfo:
-    """复制一个可定位的字幕片段。
-
-    :param segment: 资料实体中的字幕片段。
-    :returns: 面向交互层的片段信息。
-    """
-    return LegacySubtitleSegmentInfo(
-        segment.start_seconds, segment.end_seconds, segment.text, segment.heading, segment.keywords,
-    )
+from ..common.constant.result_status import ResultStatus
+from ..common.dto.material_dto import DeletionResult
+from ..entity import MaterialIndex
+from .error import IngestionError
 
 
 async def batch_delete(
@@ -59,6 +28,7 @@ async def batch_delete(
         try:
             await operation(index)
         except (KeyError, ValueError, IngestionError) as error:
+            # 单条删除方法决定实际删除哪些内容。这里记录失败，并继续处理后续资料。
             logger.warning("批量删除项失败 operation=%s material_id=%d error_type=%s",
                            operation.__name__, material_id, type(error).__name__)
             results.append(DeletionResult(material_id, ResultStatus.FAILED, str(error)))
