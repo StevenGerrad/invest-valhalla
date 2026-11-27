@@ -1,4 +1,4 @@
-# Valhalla 开发说明
+# Avatar 开发说明
 
 当前实现由三个一级模块组成。各模块的 README 面向使用者，CLAUDE.md 说明代码职责和测试位置。 [项目使用入口](README.md) · [系统架构划分](docs/spec/系统架构划分.md)
 
