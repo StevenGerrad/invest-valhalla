@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "avatar"
+name = "avatar-agent"
 version = "0.1.0"
 description = "Creator content collection and evidence-based research agents"
 readme = "README.md"
