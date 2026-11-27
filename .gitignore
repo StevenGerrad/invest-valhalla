@@ -24,7 +24,6 @@ output/
 # Credentials (do NOT commit)
 *.env
 /.sessions/
-!requirements.in
 
 # OS
 .DS_Store

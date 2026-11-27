@@ -10,7 +10,7 @@
 |---|---|
 | B 站拉取和扫码登录 | `uv sync --locked --extra bilibili` |
 | Whisper 转录和可选的繁简转换 | `uv sync --locked --extra transcription` |
-| DeepSeek 或 TokenHub 文本模型 | `uv sync --locked --extra agent` |
+| DeepSeek 或 TokenHub 文本模型 | `uv sync --locked --extra llm` |
 | 网页正文提取和 SRT 导出 | 使用 Python 标准库。 |
 | 音频提取 | 安装 FFmpeg，并确保 `ffmpeg` 可从 PATH 调用，或显式配置其路径。 |
 

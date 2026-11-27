@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "invest-valhalla"
-dynamic = ["version"]
+version = "0.1.0"
 description = "Creator content collection and evidence-based research agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -12,24 +12,17 @@ dependencies = []
 
 [project.optional-dependencies]
 bilibili = ["bilibili-api-python==17.4.1", "httpx==0.28.1"]
-transcription = ["faster-whisper==1.2.1", "opencc-python-reimplemented==0.1.7"]
-agent = [
-    "faiss-cpu==1.14.2",
-    "jieba==0.42.1",
-    "numpy==2.4.6",
-    "openai==2.38.0",
-    "pydantic==2.13.4",
-    "rank-bm25==0.2.2",
-    "sentence-transformers==5.5.1",
+transcription = [
+    # faster-whisper 1.2.1 解码音频时使用 PyAV 的 metadata_errors 参数。
+    "av==17.0.1",
+    "faster-whisper==1.2.1",
+    "opencc-python-reimplemented==0.1.7",
 ]
-web = ["fastapi==0.137.0", "uvicorn==0.49.0"]
-
-[tool.setuptools.dynamic]
-version = {attr = "valhalla.__version__"}
+llm = ["httpx==0.28.1", "openai==2.38.0"]
 
 [tool.setuptools.packages.find]
-include = ["valhalla", "valhalla.*", "core", "core.*", "integration", "integration.*", "ingestion", "ingestion.*"]
-exclude = ["valhalla.*.test", "valhalla.*.test.*", "core.test", "core.test.*", "integration.test", "integration.test.*", "ingestion.test", "ingestion.test.*"]
+include = ["core", "core.*", "integration", "integration.*", "ingestion", "ingestion.*"]
+exclude = ["core.test", "core.test.*", "integration.test", "integration.test.*", "ingestion.test", "ingestion.test.*"]
 
 [tool.setuptools.package-data]
 "core" = ["config.toml"]

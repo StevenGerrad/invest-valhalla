@@ -1,14 +1,14 @@
 # 数据采集
 
-采集模块提供数字人登记、B 站投稿与合集浏览、字幕采集和 Agent 加工。新命令使用独立的本地文件仓储。
+采集模块提供数字人登记、B 站投稿与合集浏览、字幕采集和 Agent 加工。CLI 使用本地文件仓储。
 
-## 使用新采集命令
+## 使用采集命令
 
-从项目根目录运行。浏览远端需要 `bilibili`，采集字幕还需要 `transcription` 和 FFmpeg，加工字幕需要 `agent` 和对应模型的 API Key。
+从项目根目录运行。浏览远端需要 `bilibili`，采集字幕还需要 `transcription` 和 FFmpeg，加工字幕需要 `llm` 和对应模型的 API Key。
 
 ```powershell
-uv sync --locked --extra bilibili --extra transcription --extra agent
-uv run --locked --extra bilibili --extra transcription --extra agent python -m ingestion.interaction.cli --help
+uv sync --locked --extra bilibili --extra transcription --extra llm
+uv run --locked --extra bilibili --extra transcription --extra llm python -m ingestion.interaction.cli --help
 ```
 
 初次登记博主可以通过服务接口完成，例如在项目根目录运行以下 Python 代码。
@@ -49,11 +49,11 @@ python -m ingestion.interaction.cli material collect-and-process --avatar-id 1 -
 
 上述命令使用已安装依赖的项目 Python 环境。B 站合集可传 `--collection-key 123` 或 `--collection-key series:123`。需要登录时，通过扫码获得会话并保存到根目录的 `.sessions/bilibili.json`。加工默认使用 `DEEPSEEK_API_KEY`。可通过环境变量或 `.env` 中的 `VALHALLA_LLM_PROVIDER=tokenhub` 切到 TokenHub，并提供 `TOKENHUB_API_KEY`。 [会话文件格式](../integration/README.md#b-站内容拉取)
 
-新仓储将作者登记和资料索引写入 `data/ingestion/`，原始 SRT 和加工 JSON 分别保存在作者及平台对应的 `srt/`、`processed/` 目录。
+仓储将作者登记和资料索引写入 `data/ingestion/`，原始 SRT 和加工 JSON 分别保存在作者及平台对应的 `srt/`、`processed/` 目录。
 
 `material show` 读取已保存的原稿和加工稿，在加工稿末尾显示全文关键词。`material process` 将整份原稿提交给所选模型。新加工段保存起止时间和正文，全文关键词保存在 `global_keywords`。
 
-新 CLI 的日志写入 `logs/ingestion/`。用日志行中的 `run_id` 串联同一次采集、加工或查询。 [日志排查说明](../core/README.md)
+CLI 的日志写入 `logs/ingestion/`。用日志行中的 `run_id` 串联同一次采集、加工或查询。 [日志排查说明](../core/README.md)
 
 ## 使用实体和接口
 
@@ -111,13 +111,5 @@ material = SubtitleMaterialEntity(
 `CollectionResult`、`ProcessingResult` 和 `DeletionResult` 共用 `ResultStatus`。成功使用 `SUCCESS`，跳过使用 `SKIPPED`，无需加工使用 `NOT_REQUIRED`，批量项失败使用 `FAILED`。
 
 单条和批量的采集、加工参数均使用 `skip_existing`。默认 `True`，采集时跳过已有原稿的资料，加工时跳过已有加工稿的资料。传入 `False` 可重新执行相应操作。
-
-## 继续使用现有采集命令
-
-```powershell
-uv run --locked --extra bilibili --extra transcription python -m valhalla.cli --mid 322005137 --pages 1 --skip-existing
-```
-
-现有命令默认将原始字幕写到 `data/{mid}/srt/`，启用 `--llm-process` 后将纠错结果写到 `data/{mid}/processed/`。启用纠错时同时安装 `agent` 依赖组合，并按[项目 README](../README.md)配置模型凭据。
 
 开发边界和逐文件说明见 [CLAUDE.md](CLAUDE.md)。PostgreSQL 备选方案及暂缓采用的原因见[采集存储设计](docs/spec/采集存储设计.md)。

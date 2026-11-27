@@ -17,13 +17,13 @@
 - 三个材料服务分别查询原稿、加工稿和组合详情。服务实现负责读取和筛选完整资料，由目标 DTO 的工厂方法提取字段。采集后加工委托 `MaterialProcessService`，由该服务向 `SubtitleProcessAgent` 注入模型调用，并保存校验通过的整稿。
 - 交互层从服务取得 `AvatarInfo`、`MaterialDetail` 等输出类型。它们可以通过 `AvatarIndex` 或 `MaterialIndex` 充当后续服务调用的目标。领域实体在服务与仓储之间传递。
 - CLI 从 `core` 配置日志并为每次命令分配 `run_id`。服务记录任务结果和批量汇总，文件仓储在 `DEBUG` 下记录锁等待、读取和提交，在较高级别记录冲突和 I/O 故障。日志排查方式见[公共运行基础](../core/README.md)。
-- 新 CLI 使用 `data/ingestion/`。旧 CLI 管理原有生产资料，迁移时先用临时目录或副本验证兼容性。
+- CLI 使用 `data/ingestion/`。历史资料保留在各自的本地目录，导入前用临时目录或副本验证兼容性。
 
 ## 代码结构
 
 ```text
 ingestion/
-├── README.md                        # 新旧 CLI 使用方式、实体和接口示例
+├── README.md                        # CLI 使用方式、实体和接口示例
 ├── CLAUDE.md                        # 模块边界、源文件职责与测试约定
 ├── common/
 │   ├── constant/

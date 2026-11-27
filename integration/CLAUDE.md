@@ -61,5 +61,5 @@ integration/
 ```powershell
 $testFiles = Get-ChildItem -LiteralPath integration/test -Recurse -File -Filter 'test_*.py' |
     ForEach-Object { Resolve-Path -LiteralPath $_.FullName -Relative }
-uv run --locked --extra bilibili --extra agent python -m unittest @testFiles
+uv run --locked --extra bilibili --extra llm python -m unittest @testFiles
 ```
